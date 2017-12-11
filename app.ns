@@ -1,0 +1,203 @@
+(*******************************************************************************
+* Conversion of the JS implementation at https://github.com/acmeair/acmeair-nodejs
+* to SOMns.
+*
+* Copyright (c) 2015 IBM Corp.
+* Copyright (c) 2017 Dominik Aumayr
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+*    http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+*******************************************************************************)
+
+class AcmeAir usingPlatform: platform = Value (
+  | 
+    private system = platform system.
+    private http = platform http.
+    private Routes = (system loadModule: 'Routes.ns' nextTo: self) usingPlatform: platform. 
+    private Loader = (system loadModule: '/loader/Loader.ns' nextTo: self) usingPlatform: platform.
+  |
+) (
+
+  public class AcmeAir = (
+    |
+    settings
+    authService
+    authServiceLocation
+    authModule
+    routes
+    loader
+    app
+    (*Only initialize DB after initialization of the authService is done*)
+    initialized = false.
+    serverStarted = false.
+    host
+    port
+  |
+    
+    (*var authServiceLocation = process.env.AUTH_SERVICE;*)
+    (*var settings = JSON.parse(fs.readFileSync('settings.json', 'utf8'));*)
+
+    (* disable process.env.PORT for now as it cause problem on mesos slave*)
+    (*var port = (process.env.VMC_APP_PORT || process.env.VCAP_APP_PORT || settings.port);*)
+    (*var host = (process.env.VCAP_APP_HOST || 'localhost');*)
+    ('host:port==' + host + ':' + port) println.
+  )(
+
+    public work = (
+      |contextRoot|
+      authServiceLocation = nil ifFalse: [
+        ('Use authservice:' + authServiceLocation) printline.
+        
+        (authServiceLocation indexOf: ':') > 0 ifTrue: [
+          (*This is to use micro services*)
+          authModule:: 'acmeairhttp'.
+        ] ifFalse: [
+          authModule:: authServiceLocation.
+        ].
+        
+        authService:: (system loadModule: ('./'+authModule+'/index.js') nextTo: self) usingPlatform: platform withSettings: settings.
+        
+        (authService = nil) not && enableHystrix ifTrue: [
+          'Enabled Hystrix' println.
+          authService:: (system loadModule: './acmeaircmd/index.js' nextTo: self) usingPlatform: platform authService: authService withSettings: settings.
+        ]
+      ].
+
+      routes:: (Routes Routes) new: authService with: settings.
+      loader:: (Loader Loader) new: routes settings: settings.
+
+      (* Setup express with 4.0.0*)
+      server:: (http Server) create: 'localhost' port: 3458.
+
+
+      (* just a reminder
+      var bodyParser     = require('body-parser')
+      var methodOverride = require('method-override');
+      var cookieParser = require('cookie-parser')*)
+
+      (*set the static files location /public/img will be /img for users*)
+      server static: '/public'. 		
+
+
+      (*set up routing of requests*)
+      contextRoot:: settings contextRoot.
+      server route: (contextRoot + '/login') with: #POST to: login.
+      server route: (contextRoot + '/login/logout') with: #GET to: logout.
+      server route: (contextRoot + '/flights/queryflights') with: #POST to: (routes checkForValidSessionCookie).
+      server route: (contextRoot + '/flights/queryflights') with: #POST to: (routes queryflights).
+      server route: (contextRoot + '/bookings/bookflights') with: #POST to: (routes checkForValidSessionCookie).
+      server route: (contextRoot + '/bookings/bookflights') with: #POST to: (routes bookflights).
+      server route: (contextRoot + '/bookings/cancelbooking') with: #POST to: (routes checkForValidSessionCookie).
+      server route: (contextRoot + '/bookings/cancelbooking') with: #POST to: (routes cancelBooking).
+
+      server route: (contextRoot + '/bookings/byuser/:user') with: #GET to: (routes checkForValidSessionCookie).
+      server route: (contextRoot + '/bookings/byuser/:user') with: #GET to: (routes bookingsByUser).
+      server route: (contextRoot + '/customer/byid/:user') with: #GET to: (routes checkForValidSessionCookie).
+      server route: (contextRoot + '/customer/byid/:user') with: #GET to: (routes getCustomerById).
+      server route: (contextRoot + '/customer/byid/:user') with: #POST to: (routes checkForValidSessionCookie).
+      server route: (contextRoot + '/customer/byid/:user') with: #POST to: (routes putCustomerById).
+      server route: (contextRoot + '/config/runtime') with: #GET to: (routes getRuntimeInfo).
+      server route: (contextRoot + '/config/dataServices') with: #GET to: (routes getDataServiceInfo).
+
+      server route: (contextRoot + '/config/activeDataService') with: #GET to: (routes getActiveDataServiceInfo).
+      server route: (contextRoot + '/config/countBookings') with: #GET to: (routes countBookings).
+      server route: (contextRoot + '/config/countCustomers') with: #GET to: (routes countCustomer).
+      server route: (contextRoot + '/config/countSessions') with: #GET to: (routes countCustomerSessions).
+      server route: (contextRoot + '/config/countFlights') with: #GET to: (routes countFlights).
+
+      server route: (contextRoot + '/config/countFlightSegments') with: #GET to: (routes countFlightSegments).
+      server route: (contextRoot + '/config/countAirports') with: #GET to: (routes countAirports).
+      server route: (contextRoot + '/loader/load') with: #GET to: (routes startLoadDatabase).
+      server route: (contextRoot + '/loader/query') with: #GET to: (loader getNumConfiguredCustomers).
+      server route: (contextRoot + '/checkstatus') with: #GET to: checkStatus.
+
+      authService && (authService hystrixStream) ifTrue:[
+        server route: ('/rest/api/hystrix.stream') with: #GET to: authService hystrixStream.
+      ].
+
+      authService && (authService initialize) ifTrue:[
+        authService initialize: [
+          initDB.
+        ]
+      ] ifFalse: [
+        initDB.
+      ].
+    )
+
+    public checkStatus: req res: res = (
+      res sendStatus: 200;
+    )
+
+    public login = (
+      ^ [ :req :res |
+        initialized ifFalse: [
+          'please wait for db connection initialized then trigger again.' println.
+          initDB.
+          res sendStatus: 403.
+        ] ifTrue: [
+          routes login: req res: res.
+        ]
+      ]
+    )
+
+    public logout: req res: res = (
+      initialized ifFalse: [
+        'please wait for db connection initialized then trigger again.' println.
+        initDB.
+        res sendStatus: 400.
+      ] ifTrue: [
+        routes logout: req res: res.
+      ]
+    )
+
+    public startLoadDatabase: req res: res = (
+      initialized ifFalse: [
+        'please wait for db connection initialized then trigger again.' println.
+        initDB.
+        res sendStatus: 400.
+      ] ifTrue: [
+        loader startLoadDatabase: req res: res.
+      ]
+    )
+
+    public initDB = (
+      initialied ifTrue: [^].
+      
+      routes initializeDatabaseConnections: [ :error |
+        error ifTrue: [
+          ('Error connecting to database - exiting process: ' + error) println.
+          (*Do not stop the process for debug in container service
+          process.exit(1);*)
+        ] ifFalse: [initialized: true].
+              
+        ('Initialized database connections') println.
+        startServer();
+      ]
+    )
+
+    public startServer = (
+      serverStarted ifTrue: [^].
+      serverStarted: true.
+      server listen: port.   
+      ('Express server listening on port ' + port) println.
+    )
+  )
+
+  public main: args = (
+    |acme|
+    acme:: self AcmeAir new.
+    acme work.
+    ^0.
+  )
+)
+
+
