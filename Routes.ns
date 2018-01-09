@@ -15,16 +15,17 @@
 *******************************************************************************)
 
 class Routes usingPlatform: platform = Value (
-  
+  Kernel = platform kernel.
+  Vector = Kernel Vector.
 )(
 
-  public class Routes new: authService settings: settngs = (
+  public class Routes new: authService settings: settings = (
     |
     uuid = 0.
     flightCache = 'require(ttl-lru-cache)({maxLength:settings.flightDataCacheMaxSize})'.
     flightSegmentCache = 'require(ttl-lru-cache)({maxLength:settings.flightDataCacheMaxSize})'.
 	  flightDataCacheTTL = 'settings.flightDataCacheTTL == -1 ? null : settings.flightDataCacheTTL'.
-    dataccess = (system loadModule: 'DataAccess.ns' nextTo: self) usingPlatform: platform..
+    dataaccess = (system loadModule: 'DataAccess.ns' nextTo: self) usingPlatform: platform.
     |
   ) (
     public initializeDatabaseConnections: callback = (
@@ -35,339 +36,340 @@ class Routes usingPlatform: platform = Value (
       dataaccess insertOne: collectionname doc: doc callback: callback.
     )
 
-    public checkForValidSessionCookie: req res: res next: next = (
-      |sessionid|
-      sessionid = req cookies sessionid.
-      'checkForValidCookie' println.
+    public checkForValidSessionCookie = (
+      ^ [ :req :res | | sessionid |
+        sessionid:: req cookie: #sessionid.
+        'checkForValidCookie' println.
 
-      sessionid ifNotNil: [
-        (*trim sessionid sessiondid = sessionid.trim();*)
+        sessionid ifNotNil: [
+          (*trim sessionid sessiondid = sessionid.trim();*)
+        ].
+
+        (sessionid = nil || sessionid = '') ifTrue: [
+          'checkForValidCookie - no sessionid cookie so returning 403' println.
+          res sendStatus: 403.
+          ^ self.
+        ].
+
+        validateSession: sessionid callback: [ :err :customerid |
+          err ifTrue: [
+            (*logger.debug('checkForValidCookie - system error validating session so returning 500');*)
+            res sendStatus: 500.
+            ^ self.
+          ].
+
+          customerid ifTrue: [
+            (*logger debug ('checkForValidCookie - good session so allowing next route handler to be called') *)
+            req at: #acmeair_login_user put: customerid.
+          ] ifFalse: [
+            (*logger.debug('checkForValidCookie - bad session so returning 403');*)
+            res sendStatus: 403.
+          ]
+        ]
       ].
+    )
 
-      (sessionid = nil || sessionid = '') ifTrue: [
-        'checkForValidCookie - no sessionid cookie so returning 403' println.
-        res sendStatus: 403.
-        ^ self.
-      ]
-
-      (*
-      validateSession(sessionid, function(err, customerid) {
-        if (err) {
-          logger.debug('checkForValidCookie - system error validating session so returning 500');
-          res.sendStatus(500);
-          return;
-        }
+    public login = (
+      ^ [ :req :res | | login password |
+        (*logger.debug('logging in user');*)
+        login:: req at: 'body.login'.
+        password:: req at: 'body.password'.
+      
+        res cookie:'sessionid' with: ''.
         
-        if (customerid) {
-          logger.debug('checkForValidCookie - good session so allowing next route handler to be called');
-          req.acmeair_login_user = customerid;
-          next();
-          return;
-        }
-        else {
-          logger.debug('checkForValidCookie - bad session so returning 403');
-          res.sendStatus(403);
-          return;
-        }
-      });
-      *)
+        (* replace eventually with call to business logic to validate customer*)
+        validateCustomer: login password: password callback: [ :err :customerValid |
+          err ifTrue:[
+            res send: error with: 500.
+            ^ self.
+          ].
+          
+          customerValid ifTrue: [
+            createSession: login callback: [ :error :sessionid |
+              error ifTrue:[
+                (*logger.info(error);*)
+                res send: error with: 500.
+                ^ self.
+              ].
 
+              res cookie: 'sessionid' with: sessionid.
+              res send: 'logged in'.
+            ]
+          ] ifFalse: [
+            res sendStatus: 403.
+          ] 
+        ]
+      ].
     )
 
-    public login: req res: res = (
-      (*
-      logger.debug('logging in user');
-      var login = req.body.login;
-      var password = req.body.password;
-    
-      res.cookie('sessionid', '');
-      
-      // replace eventually with call to business logic to validate customer
-      validateCustomer(login, password, function(err, customerValid) {
-        if (err) {
-          res.send(500,err); // TODO: do I really need this or is there a cleaner way??
-          return;
-        }
+    public logout = (
+      ^ [ :req :res | | sessionid login |
+        (*logger.debug('logging out user');*)
         
-        if (!customerValid) {
-          res.sendStatus(403);
-        }
-        else {
-          createSession(login, function(error, sessionid) {
-            if (error) {
-              logger.info(error);
-              res.send(500, error);
-              return;
-            }
-            res.cookie('sessionid', sessionid);
-            res.send('logged in');
-          });
-        }
-      });
-      *)
+        sessionid::  req cookie: #sessionid.
+        login:: req at: 'body.login'.
+        invalidateSession: sessionId callback: [ :err |
+          res cookie: 'sessionid' with: ''.
+          res send: 'logged out'.
+        ]
+      ].
     )
 
-    public logout: req res: res = (
-      (*
-      logger.debug('logging out user');
+    public queryflights = (
+      ^ [ :req :res | | fromAirport toAirport fromDateWeb fromDate oneWay returnDateWeb returnDate options|
+        (* logger.debug('querying flights');*)
       
-      var sessionid = req.cookies.sessionid;
-      var login = req.body.login;
-      invalidateSession(sessionid, function(err) {
-        res.cookie('sessionid', '');
-        res.send('logged out');
-      });
-      *)
-    )
+        fromAirport:: req at: 'body.fromAirport'.
+        toAirport:: req at: 'body.toAirport'.
+        fromDateWeb:: Date new: (req at: 'body.fromDate'). (*TODO make Date*)
+        fromDate:: Date new: (fromDateWeb.getFullYear(), fromDateWeb.getMonth(), fromDateWeb.getDate()). (*convert date to local timezone*)
+        oneWay:: (req at: 'body.oneWay' = 'true');(*TODO careful here*)
+        returnDateWeb:: Date new: (req at: 'body.returnDate').
 
-    queryflights: req res: res = (
-      (*
-          logger.debug('querying flights');
-      
-      var fromAirport = req.body.fromAirport;
-      var toAirport = req.body.toAirport;
-      var fromDateWeb = new Date(req.body.fromDate);
-      var fromDate = new Date(fromDateWeb.getFullYear(), fromDateWeb.getMonth(), fromDateWeb.getDate()); // convert date to local timezone
-      var oneWay = (req.body.oneWay == 'true');
-      var returnDateWeb = new Date(req.body.returnDate);
-      var returnDate;
-      if (!oneWay) {
-        returnDate = new Date(returnDateWeb.getFullYear(), returnDateWeb.getMonth(), returnDateWeb.getDate()); // convert date to local timezone
-      }
-      
-      getFlightByAirportsAndDepartureDate(fromAirport, toAirport, fromDate, function (error, flightSegmentOutbound, flightsOutbound) {
-        logger.debug('flightsOutbound = ' + flightsOutbound);
-        if (flightsOutbound) {
-          for (ii = 0; ii < flightsOutbound.length; ii++) {
-            flightsOutbound[ii].flightSegment = flightSegmentOutbound;
-          }
-        }
-        else {
-          flightsOutbound = [];
-        }
-        if (!oneWay) {
-          getFlightByAirportsAndDepartureDate(toAirport, fromAirport, returnDate, function (error, flightSegmentReturn, flightsReturn) {
-            logger.debug('flightsReturn = ' + JSON.stringify(flightsReturn));
-            if (flightsReturn) {
-              for (ii = 0; ii < flightsReturn.length; ii++) {
-                flightsReturn[ii].flightSegment = flightSegmentReturn;
-              }
-            }
-            else {
-              flightsReturn = [];
-            }
-            var options = {"tripFlights":
+        oneWay ifFalse: [
+          returnDate:: Date new: (returnDateWeb.getFullYear(), returnDateWeb.getMonth(), returnDateWeb.getDate()). (*convert date to local timezone*)
+        ]
+
+        getFlightByAirportsAndDepartureDate: fromAirport toAirport: toAirport flightDate: fromDate callback: [ :error :flightSegmentOutbound :flightsOutbound |
+          (*logger.debug('flightsOutbound = ' + flightsOutbound);*)
+          flightsOutbound ifTrue: [
+            1 to: (flightsOutbound length) do: [ :ii |
+              (flightsOutbound at: ii) flightSegment:: flightSegmentOutbound;
+            ]
+          ] ifFalse: [
+            (*TODO emptry whatever datatype*)
+            flightsOutbound:: nil;
+          ].
+          
+          oneWay ifTrue: [
+            (*TODO serialize flightsOutbound and return*)
+            options:: ('{"tripFlights":
               [
-              {"numPages":1,"flightsOptions": flightsOutbound,"currentPage":0,"hasMoreOptions":false,"pageSize":10},
-              {"numPages":1,"flightsOptions": flightsReturn,"currentPage":0,"hasMoreOptions":false,"pageSize":10}
-              ], "tripLegs":2};
-            res.send(options);
-          });
-        }
-        else {
-          var options = {"tripFlights":
-            [
-            {"numPages":1,"flightsOptions": flightsOutbound,"currentPage":0,"hasMoreOptions":false,"pageSize":10}
-            ], "tripLegs":1};
-          res.send(options);
-        }
-      });
-      *)
+              {"numPages":1,"flightsOptions": ' + flightsOutbound + ',"currentPage":0,"hasMoreOptions":false,"pageSize":10}
+              ], "tripLegs":1}').
+            res send: options.
+          ] ifFalse: [
+            getFlightByAirportsAndDepartureDate: toAirport toAirport: fromAirport flightDate: returnDate callback: [ :error :flightSegmentReturn :flightsReturn |
+              (*logger.debug('flightsReturn = ' + JSON.stringify(flightsReturn));*)
+              flightsReturn ifTrue: [
+                1 to: (flightsReturn length) do: [ :ii |
+                  (flightsReturn at: ii) flightSegment:: flightSegmentReturn.
+                ]
+              ] ifFalse: [
+                (*TODO empty whatever datatype*)
+                flightsReturn:: nil.
+              ].
+
+              options:: ('{"tripFlights":
+                [
+                {"numPages":1,"flightsOptions": ' + flightsOutbound + ',"currentPage":0,"hasMoreOptions":false,"pageSize":10},
+                {"numPages":1,"flightsOptions": ' + flightsReturn + ',"currentPage":0,"hasMoreOptions":false,"pageSize":10}
+                ], "tripLegs":2}').
+              res send: options.
+            ]
+          ]
+        ]
+      ].
     )
 
-    public bookflights: req res: res = (
-      (*
-      logger.debug('booking flights');
-      
-      var userid = req.body.userid;
-      var toFlight = req.body.toFlightId;
-      var retFlight = req.body.retFlightId;
-      var oneWay = (req.body.oneWayFlight == 'true');
-      
-      logger.debug("toFlight:"+toFlight+",retFlight:"+retFlight);
-      
-      bookFlight(toFlight, userid, function (error, toBookingId) {
-        if (!oneWay) {
-          bookFlight(retFlight, userid, function (error, retBookingId) {
-            var bookingInfo = {"oneWay":false,"returnBookingId":retBookingId,"departBookingId":toBookingId};
-            res.header('Cache-Control', 'no-cache');
-            res.send(bookingInfo);
-          });
-        }
-        else {
-          var bookingInfo = {"oneWay":true,"departBookingId":toBookingId};
-          res.header('Cache-Control', 'no-cache');
-          res.send(bookingInfo);
-        }
-      });
-      *)
+    public bookflights = (
+      ^ [ :req :res | | userid toFlight retFlight oneWay bookingInfo|
+        (* logger.debug('booking flights'); *)
+        
+        userid:: req at: 'body.userid'.
+        toFlight:: req at: 'body.toFlightId'.
+        retFlight:: req at: 'body.retFlightId'.
+        oneWay:: (req at: 'body.oneWayFlight' = 'true').
+        
+        (* logger.debug("toFlight:"+toFlight+",retFlight:"+retFlight); *)
+        
+        bookFlight: toFlight userid: userid callback: [ :error :toBookingId |
+          oneWay ifTrue: [
+            bookingInfo:: ('{"oneWay":true,"departBookingId":' + toBookingId + '};').
+            res header: 'Cache-Control' value: 'no-cache'.
+            res send: bookingInfo.
+          ] ifFalse: [
+            bookFlight: retFlight userid: userid callback: [ :error :retBookingId |
+              bookingInfo:: ('{"oneWay":false,"returnBookingId":' + retBookingId + ',"departBookingId":' + toBookingId + '}').
+              res header: 'Cache-Control' value: 'no-cache'.
+              res send: bookingInfo.
+            ]
+          ]
+        ]
+      ].
     )
 
-    public cancelBooking: req res: res = (
-      (*logger.debug('canceling booking');
-      
-      var number = req.body.number;
-      var userid = req.body.userid;
-      
-      cancelBooking(number, userid, function (error) {
-        if (error) {
-          res.send({'status':'error'});
-        }
-        else {
-          res.send({'status':'success'});
-        }
-      });*)
+    public cancelBooking = (
+      ^ [ :req :res | | number userid|
+        (*logger.debug('canceling booking');*)
+        
+        number:: req at: 'body.number'.
+        userid:: req at: 'body.userid'.
+        
+        cancelBooking: number userid: userid callback: [ :error |
+          error ifTrue: [
+            res send: '{"status":"error"}'.
+          ] ifFalse: [
+            res send: '{"status":"success"}'.
+          ]
+        ]
+      ].
     )
 
-    public bookingsByUser: req res: res = (
-      (*
-      logger.debug('listing booked flights by user ' + req.params.user);
+    public bookingsByUser = (
+      ^ [ :req :res | | |
+        (*logger.debug('listing booked flights by user ' + req.params.user);*)
     
-      getBookingsByUser(req.params.user, function(err, bookings) {
-        if (err) {
-          res.sendStatus(500);
-        }
-        res.send(bookings);
-      });
-      *)
+        getBookingsByUser: (req at: 'params.user') callback: [ :err :bookings |
+          err ifTrue: [
+            res sendStatus: 500.
+          ] ifFalse: [
+            res send: bookings.
+          ]
+        ]
+      ].
     )
 
-    public getCustomerById: req res: res = (
-      (*
-      logger.debug('getting customer by user ' + req.params.user);
-    
-      getCustomer(req.params.user, function(err, customer) {
-        if (err) {
-          res.sendStatus(500);
-        }
-        res.send(customer);
-      });
-      *)
-    )
-
-    public putCustomerById: req res: res = (
-      (*
-      logger.debug('putting customer by user ' + req.params.user);
+    public getCustomerById = (
+      ^ [ :req :res | | |
+        (*logger.debug('getting customer by user ' + req.params.user);*)
       
-      updateCustomer(req.params.user, req.body, function(err, customer) {
-        if (err) {
-          res.sendStatus(500);
-        }
-        res.send(customer);
-      });
-      *)
+        getCustomer: (req at: 'params.user') callback: [ :err :customer |
+          err ifTrue: [
+            res sendStatus: 500.
+          ] ifFalse: [
+            res send: customer.
+          ]
+        ]
+      ].
     )
 
-    public toGMTString: req res: res = (
-      (*logger.info('******* running eyecatcher function');
-      var now = new Date().toGMTString();
-      res.send(now);*)
+    public putCustomerById = (
+      ^ [ :req :res | | |
+          (*logger.debug('putting customer by user ' + req.params.user);*)
+      
+          updateCustomer: (req at: 'params.user') customer: (req body) callback: [ :err :customer|
+            err ifTrue:[
+              res sendStatus: 500.
+            ] ifFalse: [
+              res send: customer.
+            ]
+          ]
+        ].
     )
 
-    public getRuntimeInfo: req res: res = (
-      (*var runtimeInfo = [];
-      runtimeInfo.push({"name":"Runtime","description":"NodeJS"});
-      var versions = process.versions;
-      for (var key in versions) {
-        runtimeInfo.push({"name":key,"description":versions[key]});
-      }
-      res.contentType('application/json');
-      res.send(JSON.stringify(runtimeInfo));*)
+    public toGMTString = (
+      ^ [ :req :res | | now |
+        (*logger.info('******* running eyecatcher function');*)
+        now:: Date new toGMTString
+        res send: now.
+      ].
+    )
+
+    public getRuntimeInfo = (
+      ^ [ :req :res |
+        res contentType: 'application/json'.
+        res send: '[{"name":"Runtime","description":"SOMns"}]'.
+      ].
     )
     
-    public getDataServiceInfo: req res: res = (
-      (*var dataServices = [{"name":"cassandra","description":"Apache Cassandra NoSQL DB"},
-                          {"name":"cloudant","description":"IBM Distributed DBaaS"},
-                          {"name":"mongo","description":"MongoDB NoSQL DB"}];
-      res.send(JSON.stringify(dataServices));*)
+    public getDataServiceInfo = (
+      ^ [ :req :res |
+        res send: '[{"name":"derby","description":"JRE Integrated DB"}]'.
+      ].
     )
 
-    public getActiveDataServiceInfo: req res: res = (
-      (*res.send(dbtype);*)
+    public getActiveDataServiceInfo = (
+      ^ [ :req :res |
+        res send: dbtype.
+      ].
     )
 
-    public countBookings: req res: res = (
-      (*
-      countItems(module.dbNames.bookingName, function (error,count){
-        if (error){
-          res.send("-1");
-        } else {
-          res.send(count.toString());
-        }
-      });
-      *)
+    public countBookings = (
+      ^ [ :req :res |
+        countItems: (module dbNames bookingName) callback: [ :error :count |
+          error ifTrue: [
+            res send: '-1'.
+          ] ifFalse: [
+            res send: ('' + count).
+          ]
+        ]
+      ].
     )
 
-    public countCustomer: req res: res = (
-      (*
-      countItems(module.dbNames.customerName, function (error,count){
-        if (error){
-          res.send("-1");
-        } else {
-          res.send(count.toString());
-        }
-      });
-      *)
+    public countCustomer = (
+      ^ [ :req :res |
+        countItems: (module dbNames customerName) callback: [ :error :count |
+          error ifTrue: [
+            res send: '-1'.
+          ] ifFalse: [
+            res send: ('' + count).
+          ]
+        ]
+      ].
     )
 
-    public countCustomerSessions: req res: res = (
-      (*countItems(module.dbNames.customerSessionName, function (error,count){
-        if (error){
-          res.send("-1");
-        } else {
-          res.send(count.toString());
-        }
-      });*)
+    public countCustomerSessions= (
+      ^ [ :req :res | | |
+        countItems: (module dbNames customerSessionName) callback: [ :error :count |
+          error ifTrue: [
+            res send: '-1'.
+          ] ifFalse: [
+            res send: ('' + count).
+          ]
+        ]
+      ].
     )
 
-    public countFlights: req res: res = (
-      (*
-      countItems(module.dbNames.flightName, function (error,count){
-        if (error){
-          res.send("-1");
-        } else {
-          res.send(count.toString());
-        }
-      });
-      *)
+    public countFlights = (
+      ^ [ :req :res | | |
+        countItems: (module dbNames flightName) callback: [ :error :count |
+          error ifTrue: [
+            res send: '-1'.
+          ] ifFalse: [
+            res send: ('' + count).
+          ]
+        ]
+      ].
     )
 
     public countFlightSegments: req res: res = (
-      (*
-      countItems(module.dbNames.flightSegmentName, function (error,count){
-        if (error){
-          res.send("-1");
-        } else {
-          res.send(count.toString());
-        }
-      });
-      *)
+      ^ [ :req :res | | |
+        countItems: (module dbNames flightSegmentName) callback: [ :error :count |
+          error ifTrue: [
+            res send: '-1'.
+          ] ifFalse: [
+            res send: ('' + count).
+          ]
+        ]
+      ].
     )
 
     public countAirports: req res: res = (
-      (*
-      countItems(module.dbNames.airportCodeMappingName, function (error,count){
-        if (error){
-          res.send("-1");
-        } else {
-          res.send(count.toString());
-        }
-      });
-      *)
+      ^ [ :req :res | | |
+        countItems: (module dbNames airportCodeMappingName) callback: [ :error :count |
+          error ifTrue: [
+            res send: '-1'.
+          ] ifFalse: [
+            res send: ('' + count).
+          ]
+        ]
+      ].
     )
 
 
     countItems: req res: res = (
-      (*
-      console.log("Calling count on " + dbName);
+      (*console.log("Calling count on " + dbName);*)
+
+      (* TODO
       dataaccess.count(dbName, {}, function(error, count) {
         console.log("Output for "+dbName+" is "+count);
         if (error) callback(error, null);
         else {
           callback(null,count);
         }
-      });
-      *)
+      });*)
+      
     )
 
     validateCustomer: username password: password callback: callback = (
@@ -404,7 +406,7 @@ class Routes usingPlatform: platform = Value (
       *)
     )
 
-    validateSession: customerId callback: callback = (
+    validateSession: sessionId callback: callback = (
       (*
       if (authService){
           authService.validateSession(sessionId,callback);
@@ -504,8 +506,8 @@ class Routes usingPlatform: platform = Value (
     )
 
     getFlightSegmentByOriginPortAndDestPort: fromAirport toAirport: toAirport callback: callback = (
+      | segment |
       (*
-      var segment;
       
       if (settings.useFlightDataRelatedCaching) {
         segment = flightSegmentCache.get(fromAirport+toAirport);
@@ -535,20 +537,20 @@ class Routes usingPlatform: platform = Value (
     )
 
     bookFlight: flightId userid: userid callback: callback = (
-      (*
-            var now = new Date();
-      var docId = uuid.v4();
-    
-      var document = { "_id" : docId, "customerId" : userid, "flightId" : flightId, "dateOfBooking" : now };
+      | now docId document |
+      now:: Date new.
+      docId:: = uuid v4. (* TODO *)
+      document:: '{ "_id" : ' + docId + ', "customerId" : ' + userid + ', "flightId" : ' + flightId + ', "dateOfBooking" : ' + now + ' }'.
       
+      (* TODO
       dataaccess.insertOne(module.dbNames.bookingName,document,function(err){
-        callback(err, docId);
+        callback value: err with: docId.
       });
       *)
     )
 
     cancelBooking: bookingId userid: userid callback: callback = (
-
+(*      dataaccess.remove(module.dbNames.bookingName, ('{"_id":' + bookingid + ', "customerId":' + userid + '}'), callback)*)
     )
   )
 ) : (

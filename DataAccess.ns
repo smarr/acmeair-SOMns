@@ -16,8 +16,8 @@
 
 class DataAccess usingPlatform: platform = Value ()(
   
-) : (
-  class DataAccess = (
+) (
+  public class DataAccess = (
     |
       mongodb
       dbclient
