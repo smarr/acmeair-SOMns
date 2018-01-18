@@ -23,13 +23,16 @@ class Loader usingPlatform: platform = Value (
       loadUtil = loadUtil.
       DATABASE_PARALLELISM = 5.
       nowAtMidnight
-      customers = Array new.
-      airportCodeMappings = Array new.
-      flightSegments = Array new.
-      flights = Array new.
+      customers = Vector new.
+      airportCodeMappings = Vector new.
+      flightSegments = Vector new.
+      flights = Vector new.
     |
       (*loaderSettings:: JSON.parse(fs.readFileSync('./loader/loader-settings.json', 'utf8'))*)
       (*nowatmignifht:: getDateAtTwelveAM(new Date());*)
+
+      (*make parallelism actors and have them insert the data*)
+
       (*
       var customerQueue = async.queue(insertCustomer, DATABASE_PARALLELISM);
       customerQueue.drain = function() {
@@ -54,86 +57,70 @@ class Loader usingPlatform: platform = Value (
       *)
   ) (
 
-    class Customer = (
+    class Customer new: id = (
       |
-         _id::= undefined.
-        password::= "password".
-        status::= "GOLD".
-        total_miles::= 1000000.
-        miles_ytd::= 1000.
-        address::= {
-            streetAddress1 : "123 Main St.",
-            city : "Anytown",
-            stateProvince : "NC",
-            country : "USA",
-            postalCode : "27617"
-        }.
-        phoneNumber::= "919-123-4567".
-        phoneNumberType::= "BUSINESS".
+        _id ::= id.
+        password ::= 'password'.
+        status ::= 'GOLD'.
+        total_miles ::= 1000000.
+        miles_ytd ::= 1000.
+        address ::= objL(
+          |
+            streetAddress1 ::= '123 Main St.'.
+            city ::= 'Anytown'.
+            stateProvince ::= 'NC'.
+            country ::= 'USA'.
+            postalCode ::= '27617'.
+          |
+        )().
+        phoneNumber ::= '919-123-4567'.
+        phoneNumberType ::= 'BUSINESS'.
       |
     )()
 
+    class AirPortCodeMapping from: id to: name = (
+      |
+        _id ::= id.
+        airportName ::= name.
+      |
+    )()
 
-    (*
-    var customerTemplate = {
-        _id : undefined,
-        password : "password",
-        status : "GOLD",
-        total_miles : 1000000,
-        miles_ytd : 1000,
-        address : {
-            streetAddress1 : "123 Main St.",
-            city : "Anytown",
-            stateProvince : "NC",
-            country : "USA",
-            postalCode : "27617"
-        },
-        phoneNumber : "919-123-4567",
-        phoneNumberType : "BUSINESS"
-    };
-    
-    var airportCodeMappingTemplate = {
-      _id : undefined,
-      airportName : undefined
-    };
-    
-    var flightSegmentTemplate = {
-        _id : undefined,
-        originPort : undefined,
-        destPort : undefined,
-        miles : undefined
-    };
-    
-    var flightTemplate = {
-        _id : undefined,
-        flightSegmentId : undefined,
-        scheduledDepartureTime : undefined,
-        scheduledArrivalTime : undefined,
-        firstClassBaseCost : 500,
-        economyClassBaseCost : 200,
-        numFirstClassSeats : 10,
-        numEconomyClassSeats : 200,
-        airplaneTypeId : "B747"
-    }
-    *)
+    class flightSegment new: id from: origin to: destination with: miles = (
+      |
+        _id ::= id.
+        originPort ::= origin.
+        destPort ::= destination.
+        miles ::= miles.
+      |
+    )()
 
-    cloneObjectThroughSerialization: theObject = (
-      (*return JSON.parse(JSON.stringify(theObject));*)
-    )
+    class Flight new: id segment: segment departure: departure arrival: arrival = (
+      |
+        _id ::= id.
+        flightSegmentId ::= segment.
+        scheduledDepartureTime ::= departure.
+        scheduledArrivalTime ::= arrival.
+        firstClassBaseCost ::= 500.
+        economyClassBaseCost ::= 200.
+        numFirstClassSeats ::= 10.
+        numEconomyClassSeats ::= 200.
+        airplaneTypeId ::= 'B747'.
+      |
+    )()
 
     getDepartureTime: days From: date = (
-      (*
-      milliseconds = days * 24 /* hours */ * 60 /* minutes */ * 60 /* seconds */ * 1000 /* milliseconds */;
-      return new Date(baseTime.getTime() + milliseconds);
+      | milliseconds |
+      milliseconds:: days * 24 * 60  * 60  * 1000.
+      (*return new Date(baseTime.getTime() + milliseconds).
       *)
     )
 
     getArrivalTime: departureTime mileage: mileage = (
-      (*
-      averageSpeed = 600.0; // 600 miles/hours
-      hours = mileage / averageSpeed; // miles / miles/hour = hours
-      milliseconds = hours * 60 /* minutes */ * 60 /* seconds */ * 1000 /* milliseconds */;
-      return new Date(departureTime.getTime() + milliseconds);
+      | averageSpeed hours milliseconds |
+      averageSpeed:: 600.0. (* 600 miles/hours *)
+      hours:: (mileage / averageSpeed). (* miles / miles/hour = hours *)
+      milliseconds:: hours * 60 * 60 * 1000.
+      (*return new Date(departureTime.getTime() + milliseconds);
       *)
     ) 
 
@@ -214,43 +201,40 @@ class Loader usingPlatform: platform = Value (
       *)
     )
 
-    public getNumConfiguredCustomers: req res: res = (
-      res contentType: 'text/plain'.
-      res send: (loaderSettings MAX_CUSTOMERS toString).
+    public getNumConfiguredCustomers = (
+      ^ [ :req :res |
+        res contentType: 'text/plain'.
+        res send: (loaderSettings MAX_CUSTOMERS toString). 
+      ]
     )
 
     createCustomers: numCustomers = (
       0 to: (numCustomers - 1) do: [ :ii | | customer |
-        (*
-        var customer = cloneObjectThroughSerialization(customerTemplate);
-        customer._id = "uid" + ii + "@email.com";
-        customers.push(customer);
-        *)
+        customer:: Customer new: ('uid' + ii + '@email.com').
+        customers append: customer.
       ]
     )
 
     createFlightRelatedData: callback = (
-      (*
-      var rows = new Array();
+      | rows airportCodeMapping flightSegmentId|
+      rows:: Vector new.
       csv()
       .from.path('./loader/mileage.csv',{ delimiter: ',' }) 
       .on('record', function(data, index) {
-        rows[index] = data;
-          logger.debug('#'+index+' '+JSON.stringify(data));
+        rows at: index put: data.
+        (*logger.debug('#'+index+' '+JSON.stringify(data));*)
       })
-      .on('end', function(count) {
-          logger.debug('Number of lines: ' + count);
-          logger.debug('rows.length = ' + rows.length);
-          logger.debug('rows = ' + rows);
-        for (var ii = 0; ii < rows[0].length; ii++) {
-          var airportCodeMapping = cloneObjectThroughSerialization(airportCodeMappingTemplate);
-          airportCodeMapping._id = rows[1][ii];
-          airportCodeMapping.airportName = rows[0][ii];
-          airportCodeMappings.push(airportCodeMapping);
-        }
+      
+        (*) logger.debug('Number of lines: ' + count);
+        logger.debug('rows.length = ' + rows.length);
+        logger.debug('rows = ' + rows);*)
+        1 to: ((rows at: 0) length) do: [ :ii |
+          airportCodeMapping:: AirportCodeMapping from: ((rows at: 2) at: ii) to: ((rows at: 1) at: ii).
+          airportCodeMappings push(airportCodeMapping).
+        ].
         
-        var flightSegmentId = 0;
-        // actual mileages start on the third (2) row
+        flightSegmentId:: 0.
+        (* actual mileages start on the third row*)
         for (var ii = 2; ii < rows.length; ii++) {
           var fromAirportCode = rows[ii][1];
           // format of the row is "long airport name name" (0), "airport code" (1), mileage to first airport in rows 0/1 (2), mileage to second airport in rows 0/1 (3), ... mileage to last airport in rows 0/1 (length)
@@ -258,22 +242,13 @@ class Loader usingPlatform: platform = Value (
             toAirportCode = rows[1][jj-2];
             mileage = rows[ii][jj];
             if (mileage != 'NA') {
-              var flightSegment = cloneObjectThroughSerialization(flightSegmentTemplate);
-              flightSegment._id = 'AA' + flightSegmentId++;
-              flightSegment.originPort = fromAirportCode;
-              flightSegment.destPort = toAirportCode;
-              flightSegment.miles = mileage;
-              flightSegments.push(flightSegment);
+              var flightSegment = flightSegment new: ('AA' + flightSegmentId) from: fromAirportCode to: toAirportCode with: mileage.
+              flightSegmentId:: flightSegmentId + 1.
+              flightSegments push: flightSegment.
               
               for (var kk = 0; kk < loaderSettings.MAX_DAYS_TO_SCHEDULE_FLIGHTS; kk++) {
                 for (var ll = 0; ll < loaderSettings.MAX_FLIGHTS_PER_DAY; ll++) {
-                  var flight = cloneObjectThroughSerialization(flightTemplate);
-                    flight._id = uuid.v4();
-                  flight.flightSegmentId = flightSegment._id;
-                  // Not using random data to match Java behavior
-                  //var randomHourDate = getDateAtRandomTopOfTheHour(nowAtMidnight);
-                  flight.scheduledDepartureTime = getDepartureTimeDaysFromDate(nowAtMidnight, kk);
-                  flight.scheduledArrivalTime = getArrivalTime(flight.scheduledDepartureTime, mileage);
+                  var flight = Flight new: (uuid v4) segment: (flightSegment _id) departure: getDepartureTimeDaysFromDate(nowAtMidnight, kk) arrival: getArrivalTime(flight.scheduledDepartureTime, mileage) 
                   flights.push(flight);
                 }
               }
@@ -282,7 +257,7 @@ class Loader usingPlatform: platform = Value (
         }
         callback();
       });
-      *)
+      
     )
 
   )

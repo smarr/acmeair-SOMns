@@ -35,10 +35,10 @@ class AcmeAir usingPlatform: platform = Value (
     authModule
     routes
     loader
-    app
+    server
     (*Only initialize DB after initialization of the authService is done*)
-    initialized = false.
-    serverStarted = false.
+    initialized ::= false.
+    serverStarted ::= false.
     host
     port
   |
@@ -55,7 +55,7 @@ class AcmeAir usingPlatform: platform = Value (
     public work = (
       |contextRoot|
       authServiceLocation = nil ifFalse: [
-        ('Use authservice:' + authServiceLocation) printline.
+        ('Use authservice:' + authServiceLocation) println.
         
         (authServiceLocation indexOf: ':') > 0 ifTrue: [
           (*This is to use micro services*)
@@ -116,7 +116,7 @@ class AcmeAir usingPlatform: platform = Value (
 
       server route: (contextRoot + '/config/countFlightSegments') with: #GET to: (routes countFlightSegments).
       server route: (contextRoot + '/config/countAirports') with: #GET to: (routes countAirports).
-      server route: (contextRoot + '/loader/load') with: #GET to: (routes startLoadDatabase).
+      server route: (contextRoot + '/loader/load') with: #GET to: startLoadDatabase.
       server route: (contextRoot + '/loader/query') with: #GET to: (loader getNumConfiguredCustomers).
       server route: (contextRoot + '/checkstatus') with: #GET to: checkStatus.
 
@@ -133,62 +133,68 @@ class AcmeAir usingPlatform: platform = Value (
       ].
     )
 
-    public checkStatus: req res: res = (
-      res sendStatus: 200;
+    public checkStatus = (
+      ^ [ :req :res |
+        res sendStatus: 200.
+      ]
     )
 
     public login = (
       ^ [ :req :res |
-        initialized ifFalse: [
+        initialized ifTrue: [
+          routes login: req res: res.
+        ] ifFalse: [
           'please wait for db connection initialized then trigger again.' println.
           initDB.
           res sendStatus: 403.
-        ] ifTrue: [
-          routes login: req res: res.
+        ] 
+      ]
+    )
+
+    public logout = (
+      ^ [ :req :res |
+        initialized ifTrue: [
+          routes logout: req res: res.
+        ] ifFalse: [
+          'please wait for db connection initialized then trigger again.' println.
+          initDB.
+          res sendStatus: 400.
         ]
       ]
     )
 
-    public logout: req res: res = (
-      initialized ifFalse: [
-        'please wait for db connection initialized then trigger again.' println.
-        initDB.
-        res sendStatus: 400.
-      ] ifTrue: [
-        routes logout: req res: res.
-      ]
-    )
-
-    public startLoadDatabase: req res: res = (
-      initialized ifFalse: [
-        'please wait for db connection initialized then trigger again.' println.
-        initDB.
-        res sendStatus: 400.
-      ] ifTrue: [
-        loader startLoadDatabase: req res: res.
+    public startLoadDatabase = (
+      ^ [ :req :res |
+        initialized ifTrue: [
+          loader startLoadDatabase: req res: res.
+        ] ifFalse: [
+          'please wait for db connection initialized then trigger again.' println.
+          initDB.
+          res sendStatus: 400.
+        ] 
       ]
     )
 
     public initDB = (
-      initialied ifTrue: [^].
+      initialized ifTrue: [ ^ self ].
       
       routes initializeDatabaseConnections: [ :error |
         error ifTrue: [
           ('Error connecting to database - exiting process: ' + error) println.
           (*Do not stop the process for debug in container service
           process.exit(1);*)
-        ] ifFalse: [initialized: true].
+        ] ifFalse: [initialized:: true].
               
         ('Initialized database connections') println.
-        startServer();
+        startServer.
       ]
     )
 
     public startServer = (
-      serverStarted ifTrue: [^].
-      serverStarted: true.
+      serverStarted ifTrue: [ ^ self ].
+      serverStarted:: true.
       server listen: port.   
-      ('Express server listening on port ' + port) println.
+      ('Server listening on port ' + port) println.
     )
   )
 

@@ -14,203 +14,113 @@
 * limitations under the License.
 *******************************************************************************)
 
-class DataAccess usingPlatform: platform = Value ()(
-  
+class DataAccess usingPlatform: platform = Value (
+	|
+		Derby = platform derby.
+		Dictionary = platform collections Dictionary.
+		mongodb = nil. (*TODO replace with my own databse*)
+	|
 ) (
   public class DataAccess = (
     |
-      mongodb
       dbclient
+			public dbNames = Dictionary new: 6.
     |
+
+		dbNames at: 'customerName' put: 'n_customer'.
+		dbNames at: 'flightName' put: 'n_flight'.
+		dbNames at: 'flightSegmentName' put: 'n_flightSegment'.
+		dbNames at: 'bookingName' put: 'n_booking'.
+		dbNames at: 'customerSessionName' put: 'n_customerSession'.
+		dbNames at: 'airportCodeMappingName' put: 'n_airportCodeMapping'.
+
   )(
-    
-    public dbNames = (
-      (*
-        module.dbNames = {
-      customerName: "customer",
-      flightName:"flight",
-      flightSegmentName:"flightSegment",
-      bookingName:"booking",
-      customerSessionName:"customerSession",
-      airportCodeMappingName:"airportCodeMapping"
-    }
-      *)
-    )
+
+		(*var upsertStmt ={
+			"n_customer": "INSERT INTO n_customer (id,content) values (?, ?)",
+			"n_customerSession": "INSERT INTO n_customerSession (id,content) values (?, ?)",
+			"n_booking": "INSERT INTO n_booking (customerId,id,content) values (?, ?, ?)",
+			"n_flight": "INSERT INTO n_flight (flightSegmentId,scheduledDepartureTime,id,content) values (?, ?, ?, ?)",
+			"n_flightSegment": "INSERT INTO n_flightSegment (originPort,destPort,id,content) values (?, ?, ?,?)",
+			"n_airportCodeMapping": "INSERT INTO n_airportCodeMapping (id,content) values (?, ?)"
+		}
+		
+		var findByIdStmt = {
+				"n_customer": "SELECT content from n_customer where id=?",
+				"n_customerSession": "SELECT content from n_customerSession where id=?",
+				"n_airportCodeMapping": "SELECT content from n_airportCodeMapping where id=?"
+		}*)
 
     public initializeDatabaseConnections: callback = (
-      (*var mongo = null;
-		var mongoURI = null;
-		if(process.env.VCAP_SERVICES){
-			  var env = JSON.parse(process.env.VCAP_SERVICES);
-	             logger.info("env: %j",env);
-			  var serviceKey = Object.keys(env)[0];
-			  if (serviceKey)
-	          {
-				  mongo = env[serviceKey][0]['credentials'];                 
-	     		  logger.info("mongo: %j",mongo);
-			  }
-		}
-
-		// The section is for docker integration using link
-		if (mongo ==null && process.env.MONGO_PORT!=null) {
-	        logger.info(process.env.MONGO_PORT);
-	        logger.info(process.env.MONGO_PORT_27017_TCP_ADDR);
-	        logger.info(process.env.MONGO_PORT_27017_TCP_PORT);
-		    mongo = {
-			    "hostname":  process.env.MONGO_PORT_27017_TCP_ADDR,
-			    "port": process.env.MONGO_PORT_27017_TCP_PORT,
-			    "username":"",
-			    "password":"",
-			    "name":"",
-			    "db":"acmeair"
-		    }
-		}
-		// Default to read from settings file
-		if (mongo==null) {
-		    mongo = {
-		    "hostname": settings.mongoHost,
-		    "port": settings.mongoPort,
-		    "username":"",
-		    "password":"",
-		    "name":"",
-		    "db":"acmeair"
-		 }
-		}
-		
-		var generate_mongo_url = function(obj){
-			if (process.env.MONGO_URL)
-			{
-			  logger.info("mongo: %j",process.env.MONGO_URL);
-			  return process.env.MONGO_URL;
-			}
-	        if (obj['uri']!=null)
-	        {
-	        	return obj.uri;
-	        }
-	        if (obj['url']!=null)
-	        {
-	        	return obj.url;
-	        }
-			obj.hostname = (obj.hostname || 'localhost');
-			obj.port = (obj.port || 27017);
-			obj.db = (obj.db || 'acmeair');
-
-			if(obj.username && obj.password){
-				return "mongodb://" + obj.username + ":" + obj.password + "@" + obj.hostname + ":" + obj.port + "/" + obj.db;
-			}
-			else{
-		        return "mongodb://" + obj.hostname + ":" + obj.port + "/" + obj.db;
-	  	 	}
-		}
-
-		var mongourl = generate_mongo_url(mongo);
-		
-		var c_opt = {server:{auto_reconnect:true,poolSize: settings.mongoConnectionPoolSize}};
-	    mongodb.connect(mongourl, c_opt, function(err, conn){
-	             if (err){
-	                callback(err);
-	             }else {
-	             dbclient=conn;
-	             // Add ensureIndex here
-	             dbclient.ensureIndex(module.dbNames.bookingName, {customerId:1}
-	             , {background:true}, function(err, indexName) {
-	            	 logger.info("ensureIndex:"+err+":"+indexName);
-	             });
-	             dbclient.ensureIndex(module.dbNames.flightName, {flightSegmentId:1,scheduledDepartureTime:2}
-	             , {background:true}, function(err, indexName) {
-	            	 logger.info("ensureIndex:"+err+":"+indexName);
-	             });
-	             dbclient.ensureIndex(module.dbNames.flightSegmentName, {originPort:1,destPort:2}
-	             , {background:true}, function(err, indexName) {
-	            	 logger.info("ensureIndex:"+err+":"+indexName);
-	             });
-	             callback(null);
-	             }
-	        });*)
+			| client |
+			
+			client:: Derby getConnection: 'acmeair'.
+			
+			(* TODO error handling for connection
+			client.connect(function(err, result) {
+				logger.info('Connected.');
+				dbclient = client;
+				callback(null);
+			});*)
     )
 
     public insertOne: collectionname doc: doc callback: callback = (
-      (*		dbclient.collection(collectionname,function(error, collection){
-			  if (error){
-				  logger.error("insertOne hit error:"+error);
-				  callback(error, null);
-			  }
-			  else{
-				  collection.insert(doc, {safe: true}, callback);
-			  }
+      (*dbclient.execute(upsertStmt[collectionname], getUpsertParam(collectionname,doc), {prepare: true}, function(err) {
+			  if (err) {callback(err, null);}
+			  else {callback(null, doc);}
 			});*)
     )
 
     public findOne: collectionname key: key callback: callback = (
-      (*
-      dbclient.collection(collectionname, function(error, collection){
-			 if (error){
-				  logger.error("findOne hit error:"+error);
-				  callback(error, null);
-			  }
-			  else{
-				collection.find({_id: key}).toArray(function(err, docs) {
-					if (err) callback (err, null);
-	                var doc = docs[0];
-	                if (doc)
-	                	callback(null, doc);
-	                else
-	                {
-	                	logger.debug("Not found:"+key);
-	                	callback(null, null)
-	                }
-				});
-			  }
-		});
-      *)
+			| query |
+			
+      query:: findByIdStmt at: collectionname.
+			query ifNil: [
+				callback value: ('FindById not supported on '+collectionname) with: nil.
+				^ self.
+			].
+			(*prepare true*)
+			dbclient execute: query args: { key } callback: [ :err :result |
+				err ifNil: [callback value: nil with: JSON parse: ((result rows at: 0) content)]
+				ifNotNil: [ callback value: err with: nil].
+			]
     )
 
     public update: collectionname doc: doc callback: callback = (
-      (*dbclient.collection(collectionname, function(error, collection){
-			  if (error){
-				  logger.error("update hit error:"+error);
-				  callback(error, null);
-			  }
-			  else{
-				collection.update({_id: doc._id}, doc, {safe: true}, function(err, numUpdates) {
-					logger.debug(numUpdates);
-					callback(err, doc);
-				});
-			  }
+      (*dbclient.execute(upsertStmt[collectionname], getUpsertParam(collectionname,doc), {prepare: true}, function(err) {
+			  if (err) {callback(err, null);}
+			  else {callback(null, doc);}
 		});*)
     )
 
     public remove: collectionname condition: condition callback: callback = (
       (*
-      dbclient.collection(collectionname,function(error, collection){
-			  if (error){
-				  logger.error("remove hit error:"+error);
-				  callback(error, null);
-			  }
-			  else{
-				collection.remove({_id: condition._id}, {safe: true}, function(err, numDocs) {
-					if (err) callback (err);
-					else callback(null);
-				});
-			  }
-		});
+      var info = getQueryInfo(collectionname, condition)
+			var query = "DELETE from "+collectionname+" where "+ info.whereStmt;
+			logger.debug("query:"+query +", param:"+ JSON.stringify(info.param))
+			dbclient.execute(query, info.param, {prepare: true},function(err, result) {
+				if(err) {callback(err)}
+				else {callback (null)}
+			});
       *)
     )
 
     public findBy: collectionname condition: condition callback: callback = (
       (*
-      dbclient.collection(collectionname,function(error, collection){
-			  if (error){
-				  logger.error("findBy hit error:"+error);
-				  callback(error, null);
-			  }
-			  else{
-				collection.find(condition).toArray(function(err, docs) {
-					if (err) callback (err, null);
-					else callback(null, docs);
-				});
-			  }
-		});
+      var info = getQueryInfo(collectionname, condition)
+			var query = "SELECT content from "+collectionname+" where "+ info.whereStmt;
+			logger.debug("query:"+query +", param:"+ JSON.stringify(info.param))
+			dbclient.execute(query, info.param,{prepare: true}, function(err, result) {
+				if(err) {callback(err, null)}
+				else {
+					var docs = [];
+					for (var i = 0; i < result.rows.length; i++) {
+						logger.debug("result["+i +"]="+ JSON.stringify(result.rows[i]));
+						docs.push(JSON.parse(result.rows[i].content));
+					}		
+					callback (null, docs)
+				}
+			});
       *)
     )
 
@@ -230,6 +140,33 @@ class DataAccess usingPlatform: platform = Value ()(
 		});
       *)
     )
+
+    getUpsertParam: collectionname doc: doc = (
+(*)		if (collectionname === 'n_booking' )
+			return [doc.customerId, doc._id, JSON.stringify(doc)];
+		if (collectionname === 'n_flight')
+			return [doc.flightSegmentId, doc.scheduledDepartureTime, doc._id, JSON.stringify(doc)];
+		if (collectionname ==='n_flightSegment')
+			return [doc.originPort, doc.destPort, doc._id, JSON.stringify(doc)];
+		return [doc._id, JSON.stringify(doc)];*)
+
+		)
+
+		getQueryInfo: collectionname condition: condition = (
+		(*var param = [];
+		var whereStmt =""
+		var first = true;
+		for (var key in condition) {
+			if (!first) whereStmt +=" and ";
+			if (key === '_id')
+				whereStmt += "id=?";
+			else
+				whereStmt += key +"=?";
+			first = false;
+			param.push(condition[key]);
+		}
+		return {"whereStmt":whereStmt, "param":param};*)
+		)
   )
   
 )
