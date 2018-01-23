@@ -78,14 +78,14 @@ class Loader usingPlatform: platform = Value (
       |
     )()
 
-    class AirPortCodeMapping from: id to: name = (
+    class AirportCodeMapping from: id to: name = (
       |
         _id ::= id.
         airportName ::= name.
       |
     )()
 
-    class flightSegment new: id from: origin to: destination with: miles = (
+    class FlightSegment new: id from: origin to: destination with: miles = (
       |
         _id ::= id.
         originPort ::= origin.
@@ -108,7 +108,7 @@ class Loader usingPlatform: platform = Value (
       |
     )()
 
-    getDepartureTime: days From: date = (
+    getDepartureTime: days from: date = (
       | milliseconds |
       milliseconds:: days * 24 * 60  * 60  * 1000.
       (*return new Date(baseTime.getTime() + milliseconds).
@@ -138,7 +138,7 @@ class Loader usingPlatform: platform = Value (
     insertCustomer: customer callback: callback = (
       (*
       logger.debug('customer to insert = ' + JSON.stringify(customer));
-      loadUtil.insertOne(loadUtil.dbNames.customerName, customer, function(error, customerInserted) {
+      loadUtil.insertOne(#n_customer, customer, function(error, customerInserted) {
         logger.debug('customer inserted = ' + JSON.stringify(customerInserted));
         callback();
       });
@@ -147,7 +147,7 @@ class Loader usingPlatform: platform = Value (
 
     insertAirportCodeMapping: airportCodeMapping callback: callback = (
       (*
-      loadUtil.insertOne(loadUtil.dbNames.airportCodeMappingName, airportCodeMapping, function(error, airportCodeMappingInserted) {
+      loadUtil.insertOne(#n_airportCodeMapping, airportCodeMapping, function(error, airportCodeMappingInserted) {
         logger.debug('airportCodeMapping inserted = ' + JSON.stringify(airportCodeMappingInserted));
         callback();
       });
@@ -156,7 +156,7 @@ class Loader usingPlatform: platform = Value (
 
     insertFlightSegment: flightSegment callback: callback = (
       (*
-      loadUtil.insertOne(loadUtil.dbNames.flightSegmentName, flightSegment, function(error, flightSegmentInserted) {
+      loadUtil.insertOne(#n_flightSegment, flightSegment, function(error, flightSegmentInserted) {
         logger.debug('flightSegment inserted = ' + JSON.stringify(flightSegmentInserted));
         callback();
       });
@@ -165,7 +165,7 @@ class Loader usingPlatform: platform = Value (
 
     insertFlight: flight callback: callback = (
       (*
-      loadUtil.insertOne(loadUtil.dbNames.flightName, flight, function(error, flightInserted) {
+      loadUtil.insertOne(#n_flight, flight, function(error, flightInserted) {
         logger.debug('flight inserted = ' + JSON.stringify(flightInserted));
         callback();
       });
@@ -218,48 +218,57 @@ class Loader usingPlatform: platform = Value (
     createFlightRelatedData: callback = (
       | rows airportCodeMapping flightSegmentId|
       rows:: Vector new.
-      csv()
-      .from.path('./loader/mileage.csv',{ delimiter: ',' }) 
-      .on('record', function(data, index) {
-        rows at: index put: data.
-        (*logger.debug('#'+index+' '+JSON.stringify(data));*)
-      })
+
+      rows:: parseCSV: './loader/mileage.csv'.
       
-        (*) logger.debug('Number of lines: ' + count);
-        logger.debug('rows.length = ' + rows.length);
-        logger.debug('rows = ' + rows);*)
-        1 to: ((rows at: 0) length) do: [ :ii |
-          airportCodeMapping:: AirportCodeMapping from: ((rows at: 2) at: ii) to: ((rows at: 1) at: ii).
-          airportCodeMappings push(airportCodeMapping).
+      (*) logger.debug('Number of lines: ' + count);
+      logger.debug('rows.length = ' + rows.length);
+      logger.debug('rows = ' + rows);*)
+      1 to: ((rows at: 1) length) do: [ :ii |
+        airportCodeMapping:: AirportCodeMapping from: ((rows at: 2) at: ii) to: ((rows at: 1) at: ii).
+        airportCodeMappings append: (airportCodeMapping).
+      ].
+      
+      flightSegmentId:: 0.
+
+      (* actual mileages start on the third row*)
+      3 to: (rows length) do: [ :ii |
+        | fromAirportCode |
+        fromAirportCode:: ((rows at: ii) at: 2).
+        (*) format of the row is "long airport name name" (0), "airport code" (1), mileage to first airport in rows 0/1 (2), mileage to second airport in rows 0/1 (3), ... mileage to last airport in rows 0/1 (length)*)
+        3 to: ((rows at: ii) length) do: [ :jj |
+          | toAirportCode flightSegment mileage |
+          toAirportCode:: ((rows at: 2) at: (jj - 3)).
+          mileage:: ((rows at: ii) at: jj).
+          mileage = 'NA' ifFalse: [
+            flightSegment:: FlightSegment new: ('AA' + flightSegmentId) from: fromAirportCode to: toAirportCode with: mileage.
+            flightSegmentId:: flightSegmentId + 1.
+            flightSegments append: flightSegment.
+            
+            0 to: (loaderSettings MAX_DAYS_TO_SCHEDULE_FLIGHTS) do: [ :kk |
+              0 to: (loaderSettings MAX_FLIGHTS_PER_DAY) do: [ :ll |
+                | flight |
+                flight:: Flight new: (uuid v4) segment: (flightSegment _id) departure: (getDepartureTime: kk from: nowAtMidnight) arrival: (getArrivalTime: (flight scheduledDepartureTime) mileage: mileage))
+                flights push: flight;
+              ]
+            ]
+          ]
         ].
-        
-        flightSegmentId:: 0.
-        (* actual mileages start on the third row*)
-        for (var ii = 2; ii < rows.length; ii++) {
-          var fromAirportCode = rows[ii][1];
-          // format of the row is "long airport name name" (0), "airport code" (1), mileage to first airport in rows 0/1 (2), mileage to second airport in rows 0/1 (3), ... mileage to last airport in rows 0/1 (length)
-          for (var jj = 2; jj < rows[ii].length; jj++) {
-            toAirportCode = rows[1][jj-2];
-            mileage = rows[ii][jj];
-            if (mileage != 'NA') {
-              var flightSegment = flightSegment new: ('AA' + flightSegmentId) from: fromAirportCode to: toAirportCode with: mileage.
-              flightSegmentId:: flightSegmentId + 1.
-              flightSegments push: flightSegment.
-              
-              for (var kk = 0; kk < loaderSettings.MAX_DAYS_TO_SCHEDULE_FLIGHTS; kk++) {
-                for (var ll = 0; ll < loaderSettings.MAX_FLIGHTS_PER_DAY; ll++) {
-                  var flight = Flight new: (uuid v4) segment: (flightSegment _id) departure: getDepartureTimeDaysFromDate(nowAtMidnight, kk) arrival: getArrivalTime(flight.scheduledDepartureTime, mileage) 
-                  flights.push(flight);
-                }
-              }
-            }
-          }
-        }
-        callback();
-      });
-      
+      ].
+      callback value.
     )
 
-  )
+    public parseCSV: filepath <String> ^ <Vector[Vector[String]]> = (
+      | path cis rows line |
+      path:: (Files FilePath for: filepath).
+      cis:: path charInputStream.
+      rows:: (Vector new: 10).
 
+      [ cis atEnd ] whileFalse: [
+        rows append: ((cis upTo: '\n') split: ',').
+      ].
+      cis close.
+      ^ rows.
+    )
+  )
 )

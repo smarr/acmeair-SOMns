@@ -18,11 +18,12 @@ class Routes usingPlatform: platform authService: authService settings: settings
   |
   Kernel = platform kernel.
   Vector = Kernel Vector.
-  dataaccess = (system loadModule: 'DataAccess.ns' nextTo: self) usingPlatform: platform.
+  DataAccess = (system loadModule: 'DataAccess.ns' nextTo: self) usingPlatform: platform.
   uuid = 0.
   flightCache = 'require(ttl-lru-cache)({maxLength:settings.flightDataCacheMaxSize})'.
   flightSegmentCache = 'require(ttl-lru-cache)({maxLength:settings.flightDataCacheMaxSize})'.
   flightDataCacheTTL = 'settings.flightDataCacheTTL == -1 ? null : settings.flightDataCacheTTL'.
+  dataaccess = DataAccess DataAccess new.
   |
 ) (
 
@@ -285,7 +286,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
 
   public countBookings = (
     ^ [ :req :res |
-      countItems: (module dbNames bookingName) callback: [ :error :count |
+      countItems: #n_booking callback: [ :error :count |
         error ifTrue: [
           res send: '-1'.
         ] ifFalse: [
@@ -297,7 +298,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
 
   public countCustomer = (
     ^ [ :req :res |
-      countItems: (module dbNames customerName) callback: [ :error :count |
+      countItems: #n_customer callback: [ :error :count |
         error ifTrue: [
           res send: '-1'.
         ] ifFalse: [
@@ -309,7 +310,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
 
   public countCustomerSessions= (
     ^ [ :req :res | | |
-      countItems: (module dbNames customerSessionName) callback: [ :error :count |
+      countItems: #n_customerSession callback: [ :error :count |
         error ifTrue: [
           res send: '-1'.
         ] ifFalse: [
@@ -321,7 +322,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
 
   public countFlights = (
     ^ [ :req :res | | |
-      countItems: (module dbNames flightName) callback: [ :error :count |
+      countItems: #n_flight callback: [ :error :count |
         error ifTrue: [
           res send: '-1'.
         ] ifFalse: [
@@ -333,7 +334,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
 
   public countFlightSegments = (
     ^ [ :req :res | | |
-      countItems: (module dbNames flightSegmentName) callback: [ :error :count |
+      countItems: #n_flightSegment callback: [ :error :count |
         error ifTrue: [
           res send: '-1'.
         ] ifFalse: [
@@ -345,7 +346,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
 
   public countAirports = (
     ^ [ :req :res | | |
-      countItems: (module dbNames airportCodeMappingName) callback: [ :error :count |
+      countItems: #n_airportCodeMapping callback: [ :error :count |
         error ifTrue: [
           res send: '-1'.
         ] ifFalse: [
@@ -370,7 +371,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
 
   validateCustomer: username password: password callback: callback = (
     
-    dataaccess findOne: (module dbNames customerName) key: username callback: [ :error :customer |
+    dataaccess findOne: #n_customer key: username callback: [ :error :customer |
         error ifTrue: [
           called value: error with: nil.
         ] ifFalse: [
@@ -396,7 +397,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
     docId:: uuid v4.
     document:: '{ "_id" : ' + docId + ', "customerid" : ' + customerId + ', "lastAccessedTime" : ' + now + ', "timeoutTime" : ' + later + ' }'.
 
-    dataaccess insertOne: (module dbNames customerSessionName) doc: document callback: [ :error :doc |
+    dataaccess insertOne: #n_customerSession doc: document callback: [ :error :doc |
       error ifTrue: [
         callback value: error with: null.
       ] ifFalse: [
@@ -414,12 +415,12 @@ class Routes usingPlatform: platform authService: authService settings: settings
 
     now:: Date new.
       
-    dataaccess findOne: (module dbNames customerSessionName) key: sessionId callback: [ :err :session |
+    dataaccess findOne: #n_customerSession key: sessionId callback: [ :err :session |
       err ifTrue: [
         callback value: err with: nil.
       ] ifFalse: [
         now > (session timeoutTime) ifTrue: [
-          dataaccess remove: (module dbNames customerSessionName) condition: ('{"_id":' + sessionId + '}') callback: [ :error |
+          dataaccess remove: #n_customerSession condition: ('{"_id":' + sessionId + '}') callback: [ :error |
             error ifTrue: [
               callback value: error with: nil.
             ] ifFalse: [
@@ -434,15 +435,15 @@ class Routes usingPlatform: platform authService: authService settings: settings
   )
 
   getCustomer: username callback: callback = (
-    dataaccess findOne: (module dbNames customerName) key: username callback: callback.
+    dataaccess findOne: #n_customer key: username callback: callback.
   )
 
   updateCustomer: login customer: customer callback: callback = (
-    dataaccess update: (module dbNames customerName) doc: customer callback: callback.
+    dataaccess update: #n_customer doc: customer callback: callback.
   )
 
   getBookingsByUser: username callback: callback = (
-    dataaccess findBy: (module dbNames bookingName) condition: ('{"customerId":' + username + '}') callback: callback
+    dataaccess findBy: #n_booking condition: ('{"customerId":' + username + '}') callback: callback
   )
 
   invalidateSession: sessionId callback: callback = (
@@ -451,7 +452,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
       ^ self.
     ].
       
-    dataaccess remove: (module dbNames customerSessionName) condition: ('{"_id":' + sessionid + '}') callback: callback. 
+    dataaccess remove: #n_customerSession condition: ('{"_id":' + sessionid + '}') callback: callback. 
   )
 
   getFlightByAirportsAndDepartureDate: fromAirport toAirport: toAirport flightDate: flightDate callback: callback = (
@@ -494,7 +495,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
       ].
       
       searchCriteria = ('{flightSegmentId: ' + (flightsegment _id) + ', scheduledDepartureTime: ' + date + '}').
-      dataaccess findBy: (module dbNames flightName) condition: searchCriteria callback: [ :err :docs |
+      dataaccess findBy: #n_flight condition: searchCriteria callback: [ :err :docs |
         | docsEmpty cacheValue |
         err ifTrue:[
           (*)ogger.error("hit error:"+err);*)
@@ -535,7 +536,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
       (*logger debug ('cache miss - flightsegment search, key = ' + fromAirport+toAirport + ', flightSegmentCache size = ' + flightSegmentCache.size());*)
     ].
     
-    dataaccess findBy: (module dbNames flightSegmentName) condition: ('{originPort: ' + fromAirport + ', destPort: ' + toAirport + '}') callback: [ :err :docs |
+    dataaccess findBy: #n_flightSegment condition: ('{originPort: ' + fromAirport + ', destPort: ' + toAirport + '}') callback: [ :err :docs |
       err ifTrue:[
         callback value: err with: nil.
       ] ifFalse: [
@@ -561,14 +562,14 @@ class Routes usingPlatform: platform authService: authService settings: settings
     document:: '{ "_id" : ' + docId + ', "customerId" : ' + userid + ', "flightId" : ' + flightId + ', "dateOfBooking" : ' + now + ' }'.
     
     
-    dataaccess insertOne: (module dbNames bookingName) doc: document callback: [ :err |
+    dataaccess insertOne: #n_booking doc: document callback: [ :err |
       callback value: err with: docId.
     ]
     
   )
 
   cancelBooking: bookingId userid: userid callback: callback = (
-    dataaccess remove: (module dbNames bookingName) condition: ('{"_id":' + bookingid + ', "customerId":' + userid + '}') callback: callback.
+    dataaccess remove: #n_booking condition: ('{"_id":' + bookingid + ', "customerId":' + userid + '}') callback: callback.
   )
   
 ) : (
