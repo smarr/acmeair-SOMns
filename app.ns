@@ -20,16 +20,18 @@
 
 class AcmeAir usingPlatform: platform = Value (
   | 
-    private system = platform system.
     private http = platform http.
-    private Routes = (system loadModule: 'Routes.ns' nextTo: self) usingPlatform: platform. 
-    private Loader = (system loadModule: '/loader/Loader.ns' nextTo: self) usingPlatform: platform.
+    private JSON = (platform system loadModule: 'JSON.ns' nextTo: self) usingPlatform: platform.
+    private Routes = (platform system loadModule: 'Routes.ns' nextTo: self) usingPlatform: platform. 
+    private Loader = (platform system loadModule: '/loader/Loader.ns' nextTo: self) usingPlatform: platform andJSON: JSON.
+    private FilePath = platform files FilePath.
+    private Dictionary = platform collections Dictionary.
   |
 ) (
 
-  public class AcmeAir = (
+  public class Application = (
     |
-    settings
+    settings = readSettings.
     authService
     authServiceLocation
     authModule
@@ -45,7 +47,6 @@ class AcmeAir usingPlatform: platform = Value (
     
     (*var authServiceLocation = process.env.AUTH_SERVICE;*)
     (*var settings = JSON.parse(fs.readFileSync('settings.json', 'utf8'));*)
-
     (* disable process.env.PORT for now as it cause problem on mesos slave*)
     (*var port = (process.env.VMC_APP_PORT || process.env.VCAP_APP_PORT || settings.port);*)
     (*var host = (process.env.VCAP_APP_HOST || 'localhost');*)
@@ -72,8 +73,8 @@ class AcmeAir usingPlatform: platform = Value (
         ]
       ].
 
-      routes:: (Routes Routes) new: authService with: settings.
-      loader:: (Loader Loader) new: routes settings: settings.
+      routes:: (Routes Routes) new: authService settings: settings.
+      loader:: (Loader Loader) new: routes.
 
       (* Setup express with 4.0.0*)
       server:: (http Server) create: 'localhost' port: 3458.
@@ -89,7 +90,7 @@ class AcmeAir usingPlatform: platform = Value (
 
 
       (*set up routing of requests*)
-      contextRoot:: settings contextRoot.
+      contextRoot:: (settings at: #contextRoot).
       server route: (contextRoot + '/login') with: #POST to: login.
       server route: (contextRoot + '/login/logout') with: #GET to: logout.
       server route: (contextRoot + '/flights/queryflights') with: #POST to: (routes checkForValidSessionCookie).
@@ -196,11 +197,21 @@ class AcmeAir usingPlatform: platform = Value (
       server listen: port.   
       ('Server listening on port ' + port) println.
     )
+
+    readSettings = (
+      | cis settings |
+      settings:: Dictionary new.
+      cis:: (FilePath for: './settings.json') charInputStream.
+      (JSON JSONParser parse: (cis next: (cis size))) do: [ :e |
+        settings at: (e key asSymbol) put: (e value).
+      ]. 
+      ^ settings.
+    )
   )
 
   public main: args = (
     |acme|
-    acme:: self AcmeAir new.
+    acme:: self Application new.
     acme work.
     ^0.
   )

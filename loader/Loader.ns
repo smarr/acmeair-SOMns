@@ -14,12 +14,17 @@
 * limitations under the License.
 *******************************************************************************)
 
-class Loader usingPlatform: platform = Value (
-  | private platform = platform. |
+class Loader usingPlatform: platform andJSON: JSON = Value (
+  | 
+    private Vector = platform kernel Vector.
+    private File = platform files.
+    private FilePath = File FilePath.
+    private Dictionary = platform collections Dictionary.
+    private JSON = JSON.
+  |
 ) (
-  public class Loader new: loadUtil settings: settings = (
+  public class Loader new: loadUtil = (
     | loaderSettings 
-      settings = settings.
       loadUtil = loadUtil.
       DATABASE_PARALLELISM = 5.
       nowAtMidnight
@@ -28,7 +33,8 @@ class Loader usingPlatform: platform = Value (
       flightSegments = Vector new.
       flights = Vector new.
     |
-      (*loaderSettings:: JSON.parse(fs.readFileSync('./loader/loader-settings.json', 'utf8'))*)
+      loaderSettings:: readLoaderSetting
+      
       (*nowatmignifht:: getDateAtTwelveAM(new Date());*)
 
       (*make parallelism actors and have them insert the data*)
@@ -57,56 +63,126 @@ class Loader usingPlatform: platform = Value (
       *)
   ) (
 
-    class Customer new: id = (
+    public class Customer new: id = (
       |
-        _id ::= id.
-        password ::= 'password'.
-        status ::= 'GOLD'.
-        total_miles ::= 1000000.
-        miles_ytd ::= 1000.
-        address ::= objL(
-          |
-            streetAddress1 ::= '123 Main St.'.
-            city ::= 'Anytown'.
-            stateProvince ::= 'NC'.
-            country ::= 'USA'.
-            postalCode ::= '27617'.
-          |
-        )().
-        phoneNumber ::= '919-123-4567'.
-        phoneNumberType ::= 'BUSINESS'.
+        public _id ::= id.
+        public password ::= 'password'.
+        public status ::= 'GOLD'.
+        public total_miles ::= 1000000.
+        public miles_ytd ::= 1000.
+        public address ::= Address new.
+        public phoneNumber ::= '919-123-4567'.
+        public phoneNumberType ::= 'BUSINESS'.
+      |
+    )(
+      toJSON = (
+        
+      )
+    ) : (
+      fromJSON: json = (
+        | entries result |
+        result:: Customer new: ''.
+        entries:: JSON JsonParser parse: json.
+        entries do: [ :e |
+          e key = '_id' ifTrue: [^ result _id: e value].
+          e key = 'password' ifTrue: [^ result password: e value].
+          e key = 'status' ifTrue: [^ result status: e value].
+          e key = 'total_miles' ifTrue: [^ result total_miles: e value].
+          e key = 'miles_ytd' ifTrue: [^ result miles_ytd: e value].
+          e key = 'address' ifTrue: [
+            e value do: [ :ee |
+              ee key = 'streetAddress1' ifTrue: [ ^ result address streetAddress1: ee value].
+              ee key = 'city' ifTrue: [ ^ result address city: ee value].
+              ee key = 'stateProvince' ifTrue: [ ^ result address stateProvince: ee value].
+              ee key = 'country' ifTrue: [ ^ result address country: ee value].
+              ee key = 'postalCode' ifTrue: [ ^ result address postalCode: ee value].
+            ].
+            ^ self.
+          ].
+          e key = 'phoneNumber' ifTrue: [^ result phoneNumber: e value].
+          e key = 'phoneNumberType' ifTrue: [^ result phoneNumberType: e value].
+        ]
+      )
+    )
+
+    public class Address = (
+      |
+      public streetAddress1 ::= '123 Main St.'.
+      public city ::= 'Anytown'.
+      public stateProvince ::= 'NC'.
+      public country ::= 'USA'.
+      public postalCode ::= '27617'.
       |
     )()
 
-    class AirportCodeMapping from: id to: name = (
+    public class AirportCodeMapping from: id to: name = (
       |
-        _id ::= id.
-        airportName ::= name.
+        public _id ::= id.
+        public airportName ::= name.
       |
-    )()
+    )() : (
+      fromJSON: json = (
+        | entries result |
+        result:: AirportCodeMapping from: '' to: ''.
+        entries:: JSON JsonParser parse: json.
+        entries do: [ :e |
+          e key = '_id' ifTrue: [^ result _id: e value].
+          e key = 'airportName' ifTrue: [^ result airportName: e value].
+        ]
+      )
+    )
 
-    class FlightSegment new: id from: origin to: destination with: miles = (
+    public class FlightSegment new: id from: origin to: destination with: miles = (
       |
-        _id ::= id.
-        originPort ::= origin.
-        destPort ::= destination.
-        miles ::= miles.
+        public _id ::= id.
+        public originPort ::= origin.
+        public destPort ::= destination.
+        public miles ::= miles.
       |
-    )()
+    )() : (
+      fromJSON: json = (
+        | entries result |
+        result:: FlightSegment new: '' from: '' to: '' with: 0.
+        entries:: JSON JsonParser parse: json.
+        entries do: [ :e |
+          e key = '_id' ifTrue: [^ result _id: e value].
+          e key = 'originPort' ifTrue: [^ result originPort: e value].
+          e key = 'destPort' ifTrue: [^ result destPort: e value].
+          e key = 'miles' ifTrue: [^ result miles: e value].
+        ]
+      )
+    )
 
-    class Flight new: id segment: segment departure: departure arrival: arrival = (
+    public class Flight new: id segment: segment departure: departure arrival: arrival = (
       |
-        _id ::= id.
-        flightSegmentId ::= segment.
-        scheduledDepartureTime ::= departure.
-        scheduledArrivalTime ::= arrival.
-        firstClassBaseCost ::= 500.
-        economyClassBaseCost ::= 200.
-        numFirstClassSeats ::= 10.
-        numEconomyClassSeats ::= 200.
-        airplaneTypeId ::= 'B747'.
+        public _id ::= id.
+        public flightSegmentId ::= segment.
+        public scheduledDepartureTime ::= departure.
+        public scheduledArrivalTime ::= arrival.
+        public firstClassBaseCost ::= 500.
+        public economyClassBaseCost ::= 200.
+        public numFirstClassSeats ::= 10.
+        public numEconomyClassSeats ::= 200.
+        public airplaneTypeId ::= 'B747'.
       |
-    )()
+    )() : (
+      fromJSON: json = (
+        | entries result |
+        result:: Flight new: '' segment: '' departure: '' arrival: ''.
+        entries:: JSON JsonParser parse: json.
+        entries do: [ :e |
+          e key = '_id' ifTrue: [^ result _id: e value].
+          e key = 'flightSegmentId' ifTrue: [^ result flightSegmentId: e value].
+          e key = 'scheduledDepartureTime' ifTrue: [^ result scheduledDepartureTime: e value].
+          e key = 'scheduledArrivalTime' ifTrue: [^ result scheduledArrivalTime: e value].
+          e key = 'firstClassBaseCost' ifTrue: [^ result firstClassBaseCost: e value].
+          e key = 'economyClassBaseCost' ifTrue: [^ result economyClassBaseCost: e value].
+          e key = 'numFirstClassSeats' ifTrue: [^ result numFirstClassSeats: e value].
+          e key = 'numEconomyClassSeats' ifTrue: [^ result numEconomyClassSeats: e value].
+          e key = 'airplaneTypeId' ifTrue: [^ result airplaneTypeId: e value].
+        ]
+      )
+    )
 
     getDepartureTime: days from: date = (
       | milliseconds |
@@ -136,75 +212,67 @@ class Loader usingPlatform: platform = Value (
     )
 
     insertCustomer: customer callback: callback = (
-      (*
-      logger.debug('customer to insert = ' + JSON.stringify(customer));
-      loadUtil.insertOne(#n_customer, customer, function(error, customerInserted) {
-        logger.debug('customer inserted = ' + JSON.stringify(customerInserted));
-        callback();
-      });
-      *)
+      (* logger.debug('customer to insert = ' + JSON.stringify(customer));*)
+      loadUtil insertOne: #n_customer doc: customer callback: [ :err :customerInserted |
+        (*logger.debug('customer inserted = ' + JSON.stringify(customerInserted));*)
+        callback value.
+      ]
     )
 
     insertAirportCodeMapping: airportCodeMapping callback: callback = (
-      (*
-      loadUtil.insertOne(#n_airportCodeMapping, airportCodeMapping, function(error, airportCodeMappingInserted) {
-        logger.debug('airportCodeMapping inserted = ' + JSON.stringify(airportCodeMappingInserted));
-        callback();
-      });
-      *)
+      loadUtil insertOne: #n_airportCodeMapping doc: airportCodeMapping callback: [ :err :airportCodeMappingInserted |
+        (*logger.debug('airportCodeMapping inserted = ' + JSON.stringify(airportCodeMappingInserted));*)
+        callback value.
+      ]
     )
 
     insertFlightSegment: flightSegment callback: callback = (
-      (*
-      loadUtil.insertOne(#n_flightSegment, flightSegment, function(error, flightSegmentInserted) {
-        logger.debug('flightSegment inserted = ' + JSON.stringify(flightSegmentInserted));
-        callback();
-      });
-      *)
+      loadUtil insertOne: #n_flightSegment doc: flightSegment callback: [ :err :flightSegmentInserted|
+        (*logger.debug('flightSegment inserted = ' + JSON.stringify(flightSegmentInserted));*)
+        callback value.
+      ]
     )
 
     insertFlight: flight callback: callback = (
-      (*
-      loadUtil.insertOne(#n_flight, flight, function(error, flightInserted) {
-        logger.debug('flight inserted = ' + JSON.stringify(flightInserted));
-        callback();
-      });
-      *)
+      loadUtil insertOne: #n_flight doc: flight callback: [ :err :flightInserted |
+        (*logger.debug('flight inserted = ' + JSON.stringify(flightInserted));*)
+        callback value.
+      ]
     )
 
     public startLoadDatabase: req res: res = (
-      (*
-      if (customers.length>=1)
-          {
-        res.send('Already loaded');
-        return;
-          }
-      var numCustomers = req.query.numCustomers;
-      if(numCustomers === undefined) {
-        numCustomers = loaderSettings.MAX_CUSTOMERS;
-      }
-      logger.info('starting loading database');
-        createCustomers(numCustomers);
-        createFlightRelatedData(function() {
-          logger.info('number of customers = ' + customers.length);
-          logger.info('number of airportCodeMappings = ' + airportCodeMappings.length);
-          logger.info('number of flightSegments = ' + flightSegments.length);
-          logger.info('number of flights = ' + flights.length);
-          flightQueue.drain = function() {
-            logger.info('all flights loaded');
-            logger.info('ending loading database');
-            res.send('Database Finished Loading');
-          };
-          customerQueue.push(customers);
-        });
-      //res.send('Trigger DB loading');
-      *)
+      | numCustomers |
+      customers size >= 1 ifTrue:[
+        res send: 'Already loaded'.
+        ^ self.
+      ].
+      
+      numCustomers:: req query numCustomers.
+      (*if undefined*)
+      numCustomers ifNil: [
+        numCustomers:: loaderSettings at: #MAX_CUSTOMERS.
+      ].
+
+      (*logger.info('starting loading database');*)
+      createCustomers: numCustomers.
+      createFlightRelatedData: [
+        (*logger.info('number of customers = ' + customers.length);
+        logger.info('number of airportCodeMappings = ' + airportCodeMappings.length);
+        logger.info('number of flightSegments = ' + flightSegments.length);
+        logger.info('number of flights = ' + flights.length);*)
+        flightQueue drain = [
+          (*logger.info('all flights loaded');
+          logger.info('ending loading database');*)
+          res send: 'Database Finished Loading'.
+        ].
+        customerQueue push: customers.
+      ].
     )
 
     public getNumConfiguredCustomers = (
       ^ [ :req :res |
         res contentType: 'text/plain'.
-        res send: (loaderSettings MAX_CUSTOMERS toString). 
+        res send: ((loaderSettings at: #MAX_CUSTOMERS) asString). 
       ]
     )
 
@@ -221,7 +289,7 @@ class Loader usingPlatform: platform = Value (
 
       rows:: parseCSV: './loader/mileage.csv'.
       
-      (*) logger.debug('Number of lines: ' + count);
+      (*logger.debug('Number of lines: ' + count);
       logger.debug('rows.length = ' + rows.length);
       logger.debug('rows = ' + rows);*)
       1 to: ((rows at: 1) length) do: [ :ii |
@@ -245,11 +313,11 @@ class Loader usingPlatform: platform = Value (
             flightSegmentId:: flightSegmentId + 1.
             flightSegments append: flightSegment.
             
-            0 to: (loaderSettings MAX_DAYS_TO_SCHEDULE_FLIGHTS) do: [ :kk |
-              0 to: (loaderSettings MAX_FLIGHTS_PER_DAY) do: [ :ll |
+            0 to: (loaderSettings at: #MAX_DAYS_TO_SCHEDULE_FLIGHTS) do: [ :kk |
+              0 to: (loaderSettings at: #MAX_FLIGHTS_PER_DAY) do: [ :ll |
                 | flight |
-                flight:: Flight new: (uuid v4) segment: (flightSegment _id) departure: (getDepartureTime: kk from: nowAtMidnight) arrival: (getArrivalTime: (flight scheduledDepartureTime) mileage: mileage))
-                flights push: flight;
+                flight:: Flight new: (uuid v4) segment: (flightSegment _id) departure: (getDepartureTime: kk from: nowAtMidnight) arrival: (getArrivalTime: (flight scheduledDepartureTime) mileage: mileage).
+                flights push: flight.
               ]
             ]
           ]
@@ -258,7 +326,18 @@ class Loader usingPlatform: platform = Value (
       callback value.
     )
 
-    public parseCSV: filepath <String> ^ <Vector[Vector[String]]> = (
+    readLoaderSetting = (
+      | cis settings fp|
+      settings:: Dictionary new.
+      cis:: (FilePath for: './loader/loader-settings.json') charInputStream.
+      (JSON JSONParser parse: (cis next: (cis size))) do: [ :e |
+        settings at: (e key asSymbol) put: (e value).
+      ]. 
+      ^ settings.
+    )
+
+
+    parseCSV: filepath <String> ^ <Vector[Vector[String]]> = (
       | path cis rows line |
       path:: (Files FilePath for: filepath).
       cis:: path charInputStream.

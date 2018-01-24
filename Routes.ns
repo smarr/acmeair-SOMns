@@ -14,16 +14,22 @@
 * limitations under the License.
 *******************************************************************************)
 
-class Routes usingPlatform: platform authService: authService settings: settings = Value (
+class Routes usingPlatform: platform = Value(
   |
   Kernel = platform kernel.
   Vector = Kernel Vector.
-  DataAccess = (system loadModule: 'DataAccess.ns' nextTo: self) usingPlatform: platform.
+  DataAccess = (platform system loadModule: 'DataAccess.ns' nextTo: self) usingPlatform: platform.
+  |
+)(
+
+public class Routes new: authService settings: settings = (
+  |
   uuid = 0.
   flightCache = 'require(ttl-lru-cache)({maxLength:settings.flightDataCacheMaxSize})'.
   flightSegmentCache = 'require(ttl-lru-cache)({maxLength:settings.flightDataCacheMaxSize})'.
   flightDataCacheTTL = 'settings.flightDataCacheTTL == -1 ? null : settings.flightDataCacheTTL'.
   dataaccess = DataAccess DataAccess new.
+  settings = settings.
   |
 ) (
 
@@ -448,7 +454,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
 
   invalidateSession: sessionId callback: callback = (
     authService ifTrue: [
-      authService invalidateSession: sessiondid callback: callback.
+      authService invalidateSession: sessionId callback: callback.
       ^ self.
     ].
       
@@ -478,7 +484,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
       (*TODO date:: Date new: (flightDate.getFullYear(), flightDate.getMonth(), flightDate.getDate(),0,0,0,0).*)
   
       cacheKey:: (flightsegment _id) + '-' + (date getTime). (* TODO *)
-      settings useFlightDataRelatedCaching ifTrue: [
+      (settings at: #useFlightDataRelatedCaching) ifTrue: [
         flights:: flightCache get: cacheKey.
         flights ifTrue: [
           (*logger.debug("cache hit - flight search, key = " + cacheKey);*)
@@ -499,17 +505,17 @@ class Routes usingPlatform: platform authService: authService settings: settings
         | docsEmpty cacheValue |
         err ifTrue:[
           (*)ogger.error("hit error:"+err);*)
-          callback valueWithArguments: {err . null . null}.
+          callback valueWithArguments: { err . nil . nil }.
         ] ifFalse: [
-          ('after cache miss - key = ' + cacheKey + ', docs = ' + JSON stringify: docs).
+          (*'after cache miss - key = ' + cacheKey + ', docs = ' + JSON stringify: docs*)
   
           docsEmpty:: docs = nil || (docs length) == 0.
-          settings useFlightDataRelatedCaching ifTrue: [
+          (settings at: #useFlightDataRelatedCaching) ifTrue: [
             docsEmpty ifTrue: [cacheValue:: 'NULL'] ifFalse: [cacheValue:: docs].
 
-            ('about to populate the cache with flights key = ' + cacheKey + ' with value of ' + JSON stringify: cacheValue).
+            (*'about to populate the cache with flights key = ' + cacheKey + ' with value of ' + JSON stringify: cacheValue*)
             flightCache set: cacheKey to: cacheValue with: flightDataCacheTTL.
-            ('after cache populate with key = ' + cacheKey + ', flightCacheSize = ' + flightCache size).
+            (*'after cache populate with key = ' + cacheKey + ', flightCacheSize = ' + flightCache size*)
           ].
 
           callback valueWithArguments: { nil . flightsegment . docs }.
@@ -521,7 +527,7 @@ class Routes usingPlatform: platform authService: authService settings: settings
   getFlightSegmentByOriginPortAndDestPort: fromAirport toAirport: toAirport callback: callback = (
     | segment |
     
-    settings useFlightDataRelatedCaching ifTrue: [
+    (settings at: #useFlightDataRelatedCaching) ifTrue: [
       segment:: flightSegmentCache get: (fromAirport + toAirport).
       segment ifNotNil: [
         (*logger debug ("cache hit - flightsegment search, key = " + fromAirport+toAirport);*)
@@ -541,14 +547,14 @@ class Routes usingPlatform: platform authService: authService settings: settings
         callback value: err with: nil.
       ] ifFalse: [
         segment:: docs at: 1.
-        settings useFlightDataRelatedCaching ifTrue: [
-          ('about to populate the cache with flightsegment key = ' + fromAirport+toAirport + ' with value of ' + JSON stringify: segment).
+        (settings at: #useFlightDataRelatedCaching) ifTrue: [
+          (*'about to populate the cache with flightsegment key = ' + fromAirport+toAirport + ' with value of ' + JSON stringify: segment*)
           segment ifNil: [
             flightSegmentCache set: (fromAirport+toAirport) to: 'NULL' with: flightDataCacheTTL.
           ] ifNotNil: [
             flightSegmentCache set: (fromAirport+toAirport) to: segment with: flightDataCacheTTL.
           ].
-          ('after cache populate with key = ' + fromAirport+toAirport + ', flightSegmentCacheSize = ' + (flightSegmentCache size)).
+          (*'after cache populate with key = ' + fromAirport+toAirport + ', flightSegmentCacheSize = ' + (flightSegmentCache size)*)
         ].
         callback value: nil with: segment.
       ].
@@ -574,4 +580,6 @@ class Routes usingPlatform: platform authService: authService settings: settings
   
 ) : (
   
+)
+
 )

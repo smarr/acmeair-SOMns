@@ -1,0 +1,290 @@
+class JSON usingPlatform: platform = Value (|
+  Vector = platform kernel Vector.
+  Streams = platform streams.
+|
+)(
+  private class JsonParseError signalFor: str at: idx = Exception <: Value (
+  | public string = str.
+    public index  = idx.
+  |
+    signal
+  )(
+    public message = (
+      ^ 'JSON parse error. Unexpected character at ' + index + ' in "' + string + '".'.
+    )
+  )
+
+  private class JsonToken new: val with: type = Value (
+  | public value = val.
+    public type  = type.
+  |)()
+
+  class JsonTokenizer = (|
+    private tokens
+
+    private index         ::= 0.
+    private captureBuffer ::= ''.
+    private captureStart  ::= 0.
+    private current       ::= nil.
+    private str           ::= nil.
+  |
+  )(
+    private error = (
+      JsonParseError signalFor: str at: index
+    )
+
+    private startCapture = (
+      captureStart:: index - 1
+    )
+
+    private pauseCapture = (
+      captureBuffer:: captureBuffer concatenate: (
+        input substringFrom: captureStart to: index - 2).
+      captureStart:: -1
+    )
+
+    private endCapture = (
+      | captured |
+      '' = captureBuffer
+        ifTrue:  [ captured:: str substringFrom: captureStart to: index - 2 ]
+        ifFalse: [
+          pauseCapture.
+          captured:: captureBuffer.
+          captureBuffer:: '' ].
+      captureStart:: -1.
+
+      ^ captured
+    )
+
+    private readDigit = (
+      isDigit ifFalse: [ ^ false ].
+      read.
+      ^ true
+    )
+
+    private readNumber = (
+      | firstDigit |
+      startCapture.
+      current = '-' ifTrue: [ read ].
+      firstDigit:: current.
+
+      readDigit ifFalse: [ error ].
+      firstDigit <> '0' ifTrue: [ [ readDigit ] whileTrue: []].
+
+      readFraction.
+      tokens append: (JsonToken new: endCapture asInteger with: #number).
+      (*fix for readNumber looking ahead and swallowing commas*)
+      current = ',' ifTrue: [ ^ tokens append: (JsonToken new: current with: #comma) ]
+    )
+
+    readFraction = (
+      (current = '.') ifTrue: [ read ] ifFalse: [ ^ false ].
+      readDigit ifFalse: [ error ].
+
+      [ readDigit ] whileTrue: [].
+
+      ^ true
+    )
+
+    private readString = (
+      | string |
+      read.
+      startCapture.
+
+      [current = '"'] whileFalse: [
+        current = '\\' ifTrue: [
+          pauseCapture.
+          readEscape.
+          startCapture.
+        ] ifFalse: [
+          (* TODO: if (current < 0x20) { throw expected('valid string character'); }*)
+          read.
+        ]
+      ].
+      string:: endCapture.
+      tokens append: (JsonToken new: string with: #string).
+    )
+
+    private readNull = (
+      read = 'u' ifFalse: [ ^ error ].
+      read = 'l' ifFalse: [ ^ error ].
+      read = 'l' ifFalse: [ ^ error ].
+      ^ tokens append: (JsonToken new: nil with: #null)
+    )
+
+    private readFalse = (
+      read = 'a' ifFalse: [ ^ error ].
+      read = 'l' ifFalse: [ ^ error ].
+      read = 's' ifFalse: [ ^ error ].
+      read = 'e' ifFalse: [ ^ error ].
+      ^ tokens append: (JsonToken new: false with: #false)
+    )
+
+    private readTrue = (
+      read = 'r' ifFalse: [ ^ error ].
+      read = 'u' ifFalse: [ ^ error ].
+      read = 'e' ifFalse: [ ^ error ].
+      ^ tokens append:(JsonToken new: true with: #true)
+    )
+
+    private isWhiteSpace = (
+      current = ' '  ifTrue: [ ^ true ].
+      current = '\t' ifTrue: [ ^ true ].
+      current = '\n' ifTrue: [ ^ true ].
+      current = '\r' ifTrue: [ ^ true ].
+      ^ false
+    )
+
+    private isDigit = (
+      current = '0' ifTrue: [ ^ true ].
+      current = '1' ifTrue: [ ^ true ].
+      current = '2' ifTrue: [ ^ true ].
+      current = '3' ifTrue: [ ^ true ].
+      current = '4' ifTrue: [ ^ true ].
+      current = '5' ifTrue: [ ^ true ].
+      current = '6' ifTrue: [ ^ true ].
+      current = '7' ifTrue: [ ^ true ].
+      current = '8' ifTrue: [ ^ true ].
+      current = '9' ifTrue: [ ^ true ].
+      ^ false
+    )
+
+    private readToken = (
+      current = '{' ifTrue: [ ^ tokens append:(JsonToken new: current with: #leftBrace). ].
+      current = '}' ifTrue: [ ^ tokens append: (JsonToken new: current with: #rightBrace)   ].
+      current = '[' ifTrue: [ ^ tokens append: (JsonToken new: current with: #leftBracket)  ].
+      current = ']' ifTrue: [ ^ tokens append: (JsonToken new: current with: #rightBracket) ].
+      current = ':' ifTrue: [ ^ tokens append: (JsonToken new: current with: #colon) ].
+      current = ',' ifTrue: [ ^ tokens append: (JsonToken new: current with: #comma) ].
+      current = '"' ifTrue: [ ^ readString ].
+      current = 't' ifTrue: [ ^ readTrue ].
+      current = 'f' ifTrue: [ ^ readFalse ].
+      current = 'n' ifTrue: [ ^ readNull ].
+      isDigit ifTrue: [ ^ readNumber ].
+      isWhiteSpace ifFalse: [
+        error ].
+    )
+
+    (* read next character *)
+    private read = (
+      current:: str charAt: index.
+      index::   index + 1.
+      ^ current
+    )
+
+    public tokenize: string = (
+      self str: string.
+      tokens:: Vector new.
+      index:: 1.
+
+      [ index <= str length ] whileTrue: [
+        read.
+        readToken ].
+      ^ tokens.
+    )
+  )
+
+  public class JSONPair new: name value: val = (
+    |
+      public value = val.
+      public key = name.
+    |
+  )(
+    public asString = (
+      ^ 'JSONPair( ' + key + ' : ' + value +' )'
+    )
+  )
+
+  public class JSONParser = (|
+    tokens
+  |
+  )(
+    public parse: str = (
+      | tok tokenizer |
+      tokenizer:: JsonTokenizer new.
+      tok:: tokenizer tokenize: str.
+
+      tokens:: Streams SeqCltnReadStream on: tok.
+      ^ object
+    )
+
+    consume: type = (
+      | token |
+      token:: tokens next.
+      token type = type ifFalse:[
+        self error: ('Invalid JSON input. Expected:  ' + type + 'but was: ' + (token type) + ' : ' + (token value)).
+      ].
+      ^ token value.
+    )
+
+    peek: type = (
+      ^ type = (tokens peek type).
+    )
+
+    object = (
+      | pairs |
+      pairs:: Vector new.
+      consume: #leftBrace.
+
+      (peek: #string) ifTrue:[
+        members: pairs.
+      ].
+
+      consume: #rightBrace.
+      ^ pairs.
+    )
+
+    members: pairs = (
+      pairs append: pair.
+      (peek: #comma) ifTrue: [
+        tokens next.
+        members: pairs.
+      ]
+    )
+
+    pair = (
+      | key val |      
+      key:: consume: #string.
+
+      consume: #colon.
+      val:: value.
+      
+      ^ JSONPair new: key value: val.
+    )
+
+    array = (
+      | elems |
+      elems:: Vector new.
+      consume: #leftBracket.
+      (tokens peek type = #rightBracket) ifFalse: [
+        elements: elems.
+      ].
+
+      consume: #rightBracket.
+      ^ elems.
+    )
+
+    elements: elems = (
+      elems append: value.
+      (peek: #comma) ifTrue:[
+        elements: elems.
+      ].
+    )
+
+    value = (
+      (peek: #leftBrace) ifTrue: [
+        ^ object.
+      ].
+      (peek: #leftBracket) ifTrue: [
+        ^ array.
+      ].
+      (peek: #string) || (peek: #number) || (peek: #true) || (peek: #false) || (peek: #null)  ifTrue: [
+        ^ tokens next value.
+      ].
+    )
+  ) : (
+    public parse: str = (
+      ^ JSONParser new parse: str.
+    )
+  )
+)

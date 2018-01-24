@@ -36,6 +36,8 @@ class DataAccess usingPlatform: platform = Value (
 			logger.info('Connected.');
 			*)
 
+			prepareDB.
+
 			insertStmt at: #n_customer put: (dbclient prepareStatement:'INSERT INTO n_customer (id,content) values (?, ?)').
 			insertStmt at: #n_customerSession put: (dbclient prepareStatement: 'INSERT INTO n_customerSession (id,content) values (?, ?)').
 			insertStmt at: #n_booking put: (dbclient prepareStatement: 'INSERT INTO n_booking (customerId,id,content) values (?, ?, ?)').
@@ -56,49 +58,53 @@ class DataAccess usingPlatform: platform = Value (
     )
 
 		private prepareDB = (
-			| query |
-			query:: '
-			CREATE TABLE n_airportcodemapping(
-				id LONG VARCHAR PRIMARY KEY,
-				content LONG VARCHAR
-				);
+			| handler |
+			handler:: [ :err :result |
+				err ifNotNil: [
+					self error: 'Failed to create Tables'
+					err println.
+				]
+			].
 
-			CREATE TABLE n_booking(
-				customerId LONG VARCHAR,
-				id LONG VARCHAR,
-				content LONG VARCHAR,
+			(*TODO cleanup*)
+
+			dbconn execute: 'CREATE TABLE n_airportcodemapping(
+				id VARCHAR(5000) PRIMARY KEY,
+				content VARCHAR(5000)
+				)' callback: handler.
+
+      dbconn execute: 'CREATE TABLE n_booking(
+				customerId VARCHAR(5000),
+				id VARCHAR(5000),
+				content VARCHAR(5000),
 				PRIMARY KEY (customerId, id)
-				);
+				)' callback: handler.
 
-			CREATE TABLE n_customer(
-				id LONG VARCHAR PRIMARY KEY,
-				content LONG VARCHAR
-				);
+      dbconn execute: 'CREATE TABLE n_customer(
+				id VARCHAR(5000) PRIMARY KEY,
+				content VARCHAR(5000)
+				)' callback: handler.
 
-			CREATE TABLE n_customersession(
-				id LONG VARCHAR PRIMARY KEY,
-				content LONG VARCHAR
-				);
+      dbconn execute: 'CREATE TABLE n_customersession(
+				id VARCHAR(5000) PRIMARY KEY,
+				content VARCHAR(5000)
+				)' callback: handler.
 
-			CREATE TABLE n_flight(
-				flightSegmentId LONG VARCHAR,
+      dbconn execute: 'CREATE TABLE n_flight(
+				flightSegmentId VARCHAR(5000),
 				scheduledDepartureTime timestamp,
-				id LONG VARCHAR,
-				content LONG VARCHAR,
+				id VARCHAR(5000),
+				content VARCHAR(5000),
 				PRIMARY KEY (flightSegmentId,scheduledDepartureTime,id)
-				);
+				)' callback: handler.
 
-			CREATE TABLE n_flightsegment(
-				originPort LONG VARCHAR,
-				destPort LONG VARCHAR,
-				id LONG VARCHAR,
-				content LONG VARCHAR,
+      dbconn execute: 'CREATE TABLE n_flightsegment(
+				originPort VARCHAR(5000),
+				destPort VARCHAR(5000),
+				id VARCHAR(5000),
+				content VARCHAR(5000),
 				PRIMARY KEY (originPort,destPort,id)
-				);'.
-				
-			dbclient execute: query callback: [ :err :result |
-				result println.
-			]
+				)' callback: handler.
 		)
 
     public insertOne: collectionname doc: doc callback: callback = (
@@ -190,34 +196,34 @@ class DataAccess usingPlatform: platform = Value (
 
     getInsertParam: collectionname doc: doc = (
 			collectionname = #n_booking ifTrue: [
-				^ {doc customerId . doc _id . (JSON stringify: doc)}
+				^ {doc customerId . doc _id . (doc toJSON)}
 			].
 
 			collectionname = #n_flight ifTrue: [
-				^ {doc flightSegmentId . doc scheduledDepartureTime . doc _id . (JSON stringify: doc)}
+				^ {doc flightSegmentId . doc scheduledDepartureTime . doc _id . (doc toJSON)}
 			].
 
 			collectionname = #n_flightSegment ifTrue: [
-				^ {doc originPort . doc destPort . doc _id . (JSON stringify: doc)}
+				^ {doc originPort . doc destPort . doc _id . (doc toJSON)}
 			].
 			
-			^ {doc _id . (JSON stringify: doc)}
+			^ {doc _id . (doc toJSON)}
 		)
 
 		getUpdateParam: collectionname doc: doc = (
 			collectionname = #n_booking ifTrue: [
-				^ {(JSON stringify: doc) . doc customerId . doc _id}
+				^ {(doc toJSON) . doc customerId . doc _id}
 			].
 
 			collectionname = #n_flight ifTrue: [
-				^ {(JSON stringify: doc) . doc flightSegmentId . doc scheduledDepartureTime . doc _id }
+				^ {(doc toJSON) . doc flightSegmentId . doc scheduledDepartureTime . doc _id }
 			].
 
 			collectionname = #n_flightSegment ifTrue: [
-				^ {(JSON stringify: doc) . doc originPort . doc destPort . doc _id }
+				^ {(doc toJSON) . doc originPort . doc destPort . doc _id }
 			].
 			
-			^ {(JSON stringify: doc) . doc _id }
+			^ {(doc toJSON) . doc _id }
 		)
 
 		getQueryInfo: collectionname condition: condition = (
