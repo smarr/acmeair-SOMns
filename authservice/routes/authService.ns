@@ -14,11 +14,9 @@
 * limitations under the License.
 *******************************************************************************)
 
-class AuthService usingPlatform: platform dbtype: dbtype settings: settings = Value (
-	|	uuid
-		daModuleName = '../../dataaccess/' + dbtype + '/index.js'.
-		dbtype = dbtype.
-		(*dataaccess = new require(daModuleName)(settings);*)
+class AuthService settings: settings dataAccess: dataaccess= Value (
+	|	
+		dataaccess = dataaccess.
 	|
 	(*logger.info("Use dataaccess:"+daModuleName);*)
 )(
@@ -34,14 +32,7 @@ class AuthService usingPlatform: platform dbtype: dbtype settings: settings = Va
 		later:: Date new: (now getTime + 1000*60*60*24).
 			
 		document:: '{ "_id" : uuid.v4(), "customerid" : customerId, "lastAccessedTime" : now, "timeoutTime" : later }'.
-
-		dataaccess insertOne: #n_customerSession doc: document callback: [ :error :doc |
-			error ifTrue: [
-				callback value: error with: nil.
-			] ifFalse: [
-				callback value: error with: document.	
-			]
-		]
+		dataaccess insertOne: #n_customerSession doc: document callback: [ :doc | callback value: document ]
 	)
 
 	public validateSessionInDB: customerId callback: callback = (
@@ -49,18 +40,12 @@ class AuthService usingPlatform: platform dbtype: dbtype settings: settings = Va
 		(*logger.debug("validate session in DB:"+sessionId);*)
 		now:: Date new.
 
-		dataaccess findOne: #n_customerSession key: sessionId callback: [ :err :session |
-			err ifTrue: [
-				callback value: err with: nil.
+		dataaccess findOne: #n_customerSession key: sessionId callback: [ :session |
+			(now > session timeoutTime) ifTrue: [
+				dataaccess remove: #n_customerSession condition: sessionId callback: [ callback value: nil ]
 			] ifFalse: [
-				(now > session timeoutTime) ifTrue: [
-					dataaccess remove: #n_customerSession condition: sessionId callback: [ :error |
-						callback value: nil with: nil.
-					]
-				] ifFalse: [
-					callback value: nil with: session.
-				]
-			]	
+				callback value: session.
+			]
 		]
 	)
 

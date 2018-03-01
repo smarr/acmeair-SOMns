@@ -21,19 +21,28 @@
 class AcmeAir usingPlatform: platform = Value (
   | 
     private http = platform http.
+    private actors = platform actors.
+    private ObjectMirror = platform mirrors ObjectMirror.
     private JSON = (platform system loadModule: 'JSON.ns' nextTo: self) usingPlatform: platform.
-    private Routes = (platform system loadModule: 'Routes.ns' nextTo: self) usingPlatform: platform. 
     private Loader = (platform system loadModule: '/loader/Loader.ns' nextTo: self) usingPlatform: platform andJSON: JSON.
+    private DataAccess = (platform system loadModule: 'DataAccess.ns' nextTo: self) usingPlatform: platform andJSON: JSON andLoader: Loader.
+    private Routes = (platform system loadModule: 'Routes.ns' nextTo: self) usingPlatform: platform dataAccess: DataAccess andJSON: JSON andLoader: Loader. 
+    
     private FilePath = platform files FilePath.
     private Dictionary = platform collections Dictionary.
+    private System = platform system.
+    private platform = platform.
+    
   |
 ) (
 
   public class Application = (
     |
+    private modulePath = (ObjectMirror reflecting: self) classMirror classDefinition filePath. 
+    private root = (FilePath for: modulePath) containingDirectory pattern.
     settings = readSettings.
     authService
-    authServiceLocation
+    authServiceLocation = 'authservice/routes'.
     authModule
     routes
     loader
@@ -44,17 +53,19 @@ class AcmeAir usingPlatform: platform = Value (
     host
     port
   |
-    
     (*var authServiceLocation = process.env.AUTH_SERVICE;*)
     (*var settings = JSON.parse(fs.readFileSync('settings.json', 'utf8'));*)
     (* disable process.env.PORT for now as it cause problem on mesos slave*)
     (*var port = (process.env.VMC_APP_PORT || process.env.VCAP_APP_PORT || settings.port);*)
     (*var host = (process.env.VCAP_APP_HOST || 'localhost');*)
+    
     ('host:port==' + host + ':' + port) println.
   )(
 
     public work = (
       |contextRoot|
+      (*
+      we don't implement fancy microservices for now
       authServiceLocation = nil ifFalse: [
         ('Use authservice:' + authServiceLocation) println.
         
@@ -65,18 +76,17 @@ class AcmeAir usingPlatform: platform = Value (
           authModule:: authServiceLocation.
         ].
         
-        authService:: (system loadModule: ('./'+authModule+'/index.js') nextTo: self) usingPlatform: platform withSettings: settings.
+        authService:: (System loadModule: ('/'+authModule+'/authService.ns') nextTo: self) settings: settings dataAccess: DataAccess.
         
+        (* ignore hystrix for now
         (authService = nil) not && enableHystrix ifTrue: [
           'Enabled Hystrix' println.
           authService:: (system loadModule: './acmeaircmd/index.js' nextTo: self) usingPlatform: platform authService: authService withSettings: settings.
-        ]
-      ].
+        ]*)
+      ].*)
 
       routes:: (Routes Routes) new: authService settings: settings.
       loader:: (Loader Loader) new: routes.
-
-      (* Setup express with 4.0.0*)
       server:: (http Server) create: 'localhost' port: 3458.
 
 
@@ -85,53 +95,56 @@ class AcmeAir usingPlatform: platform = Value (
       var methodOverride = require('method-override');
       var cookieParser = require('cookie-parser')*)
 
+      (*parse JSON request body, url encoded, and html is parsed as text
+      
+      
+      application/x-www-form-urlencoded
+      application/json
+      text/html
+      *)
+
       (*set the static files location /public/img will be /img for users*)
-      server static: '/public'. 		
+      server <-: static: '/' with: ( root + '/public/'). 		
 
 
       (*set up routing of requests*)
       contextRoot:: (settings at: #contextRoot).
-      server route: (contextRoot + '/login') with: #POST to: login.
-      server route: (contextRoot + '/login/logout') with: #GET to: logout.
-      server route: (contextRoot + '/flights/queryflights') with: #POST to: (routes checkForValidSessionCookie).
-      server route: (contextRoot + '/flights/queryflights') with: #POST to: (routes queryflights).
-      server route: (contextRoot + '/bookings/bookflights') with: #POST to: (routes checkForValidSessionCookie).
-      server route: (contextRoot + '/bookings/bookflights') with: #POST to: (routes bookflights).
-      server route: (contextRoot + '/bookings/cancelbooking') with: #POST to: (routes checkForValidSessionCookie).
-      server route: (contextRoot + '/bookings/cancelbooking') with: #POST to: (routes cancelBooking).
+      server <-: route: (contextRoot + '/login') with: #POST to: login.
+      server <-: route: (contextRoot + '/login/logout') with: #GET to: logout.
+      server <-: route: (contextRoot + '/flights/queryflights') with: #POST to: (routes checkForValidSessionCookie).
+      server <-: route: (contextRoot + '/flights/queryflights') with: #POST to: (routes queryflights).
+      server <-: route: (contextRoot + '/bookings/bookflights') with: #POST to: (routes checkForValidSessionCookie).
+      server <-: route: (contextRoot + '/bookings/bookflights') with: #POST to: (routes bookflights).
+      server <-: route: (contextRoot + '/bookings/cancelbooking') with: #POST to: (routes checkForValidSessionCookie).
+      server <-: route: (contextRoot + '/bookings/cancelbooking') with: #POST to: (routes cancelBooking).
 
-      server route: (contextRoot + '/bookings/byuser/:user') with: #GET to: (routes checkForValidSessionCookie).
-      server route: (contextRoot + '/bookings/byuser/:user') with: #GET to: (routes bookingsByUser).
-      server route: (contextRoot + '/customer/byid/:user') with: #GET to: (routes checkForValidSessionCookie).
-      server route: (contextRoot + '/customer/byid/:user') with: #GET to: (routes getCustomerById).
-      server route: (contextRoot + '/customer/byid/:user') with: #POST to: (routes checkForValidSessionCookie).
-      server route: (contextRoot + '/customer/byid/:user') with: #POST to: (routes putCustomerById).
-      server route: (contextRoot + '/config/runtime') with: #GET to: (routes getRuntimeInfo).
-      server route: (contextRoot + '/config/dataServices') with: #GET to: (routes getDataServiceInfo).
+      server <-: route: (contextRoot + '/bookings/byuser/:user') with: #GET to: (routes checkForValidSessionCookie).
+      server <-: route: (contextRoot + '/bookings/byuser/:user') with: #GET to: (routes bookingsByUser).
+      server <-: route: (contextRoot + '/customer/byid/:user') with: #GET to: (routes checkForValidSessionCookie).
+      server <-: route: (contextRoot + '/customer/byid/:user') with: #GET to: (routes getCustomerById).
+      server <-: route: (contextRoot + '/customer/byid/:user') with: #POST to: (routes checkForValidSessionCookie).
+      server <-: route: (contextRoot + '/customer/byid/:user') with: #POST to: (routes putCustomerById).
+      server <-: route: (contextRoot + '/config/runtime') with: #GET to: (routes getRuntimeInfo).
+      server <-: route: (contextRoot + '/config/dataServices') with: #GET to: (routes getDataServiceInfo).
 
-      server route: (contextRoot + '/config/activeDataService') with: #GET to: (routes getActiveDataServiceInfo).
-      server route: (contextRoot + '/config/countBookings') with: #GET to: (routes countBookings).
-      server route: (contextRoot + '/config/countCustomers') with: #GET to: (routes countCustomer).
-      server route: (contextRoot + '/config/countSessions') with: #GET to: (routes countCustomerSessions).
-      server route: (contextRoot + '/config/countFlights') with: #GET to: (routes countFlights).
+      server <-: route: (contextRoot + '/config/activeDataService') with: #GET to: (routes getActiveDataServiceInfo).
+      server <-: route: (contextRoot + '/config/countBookings') with: #GET to: (routes countBookings).
+      server <-: route: (contextRoot + '/config/countCustomers') with: #GET to: (routes countCustomer).
+      server <-: route: (contextRoot + '/config/countSessions') with: #GET to: (routes countCustomerSessions).
+      server <-: route: (contextRoot + '/config/countFlights') with: #GET to: (routes countFlights).
 
-      server route: (contextRoot + '/config/countFlightSegments') with: #GET to: (routes countFlightSegments).
-      server route: (contextRoot + '/config/countAirports') with: #GET to: (routes countAirports).
-      server route: (contextRoot + '/loader/load') with: #GET to: startLoadDatabase.
-      server route: (contextRoot + '/loader/query') with: #GET to: (loader getNumConfiguredCustomers).
-      server route: (contextRoot + '/checkstatus') with: #GET to: checkStatus.
+      server <-: route: (contextRoot + '/config/countFlightSegments') with: #GET to: (routes countFlightSegments).
+      server <-: route: (contextRoot + '/config/countAirports') with: #GET to: (routes countAirports).
+      server <-: route: (contextRoot + '/loader/load') with: #GET to: startLoadDatabase.
+      server <-: route: (contextRoot + '/loader/query') with: #GET to: (loader getNumConfiguredCustomers).
+      server <-: route: (contextRoot + '/checkstatus') with: #GET to: checkStatus.
 
-      authService && (authService hystrixStream) ifTrue:[
+      (*authService && (authService hystrixStream) ifTrue:[
         server route: ('/rest/api/hystrix.stream') with: #GET to: authService hystrixStream.
-      ].
+      ].*)
 
-      authService && (authService initialize) ifTrue:[
-        authService initialize: [
-          initDB.
-        ]
-      ] ifFalse: [
-        initDB.
-      ].
+      
+      initDB.
     )
 
     public checkStatus = (
@@ -166,6 +179,7 @@ class AcmeAir usingPlatform: platform = Value (
 
     public startLoadDatabase = (
       ^ [ :req :res |
+        'loading' println.
         initialized ifTrue: [
           loader startLoadDatabase: req res: res.
         ] ifFalse: [
@@ -180,12 +194,13 @@ class AcmeAir usingPlatform: platform = Value (
       initialized ifTrue: [ ^ self ].
       
       routes initializeDatabaseConnections: [ :error |
-        error ifTrue: [
+        error ifNil: [
+          initialized:: true. 
+        ] ifNotNil: [
           ('Error connecting to database - exiting process: ' + error) println.
           (*Do not stop the process for debug in container service
           process.exit(1);*)
-        ] ifFalse: [initialized:: true].
-              
+        ].
         ('Initialized database connections') println.
         startServer.
       ]
@@ -194,26 +209,23 @@ class AcmeAir usingPlatform: platform = Value (
     public startServer = (
       serverStarted ifTrue: [ ^ self ].
       serverStarted:: true.
-      server listen: port.   
+      server <-: start.
       ('Server listening on port ' + port) println.
     )
 
     readSettings = (
-      | cis settings |
-      settings:: Dictionary new.
-      cis:: (FilePath for: './settings.json') charInputStream.
-      (JSON JSONParser parse: (cis next: (cis size))) do: [ :e |
-        settings at: (e key asSymbol) put: (e value).
-      ]. 
-      ^ settings.
+      | cis |
+      cis::  (FilePath for: (root + '/settings.json')) charInputStream.
+      ^ (JSON JSONParser parse: (cis next: (cis size))).
     )
   )
 
   public main: args = (
-    |acme|
+    |acme pp|
+    pp:: actors createPromisePair.
     acme:: self Application new.
     acme work.
-    ^0.
+    ^ pp promise.
   )
 )
 

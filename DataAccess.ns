@@ -14,10 +14,13 @@
 * limitations under the License.
 *******************************************************************************)
 
-class DataAccess usingPlatform: platform = Value (
+class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value (
 	|
 		Derby = platform derby.
+		JSON = JSON.
 		Dictionary = platform collections Dictionary.
+		Vector = platform kernel Vector.
+		Loader = Loader.
 	|
 ) (
   public class DataAccess = (
@@ -26,6 +29,8 @@ class DataAccess usingPlatform: platform = Value (
 			public insertStmt = Dictionary new: 6.
 			public updateStmt = Dictionary new: 6.
 			public findByIdStmt = Dictionary new: 3.
+			public contentCol = Dictionary new: 6.
+			public classMap = Dictionary new: 6.
     |
   )(
 
@@ -36,7 +41,7 @@ class DataAccess usingPlatform: platform = Value (
 			logger.info('Connected.');
 			*)
 
-			prepareDB.
+			(*prepareDB.*)
 
 			insertStmt at: #n_customer put: (dbclient prepareStatement:'INSERT INTO n_customer (id,content) values (?, ?)').
 			insertStmt at: #n_customerSession put: (dbclient prepareStatement: 'INSERT INTO n_customerSession (id,content) values (?, ?)').
@@ -51,172 +56,160 @@ class DataAccess usingPlatform: platform = Value (
 			updateStmt at: #n_flight put: (dbclient prepareStatement: 'UPDATE n_flight SET content = ? WHERE flightSegmentId = ? AND scheduledDepartureTime = ? AND id=?').
 			updateStmt at: #n_flightSegment put: (dbclient prepareStatement: 'UPDATE n_flightSegment SET content = ? WHERE originPort = ? AND destPort = ? AND id=?').
 			updateStmt at: #n_airportCodeMapping put: (dbclient prepareStatement: 'UPDATE n_airportCodeMapping SET content = ? WHERE id=?').
+			
+			findByIdStmt at: #n_customer put: (dbclient prepareStatement:'SELECT content from n_customer where id=?').
+			findByIdStmt at: #n_customerSession put: (dbclient prepareStatement:'SELECT content from n_customerSession where id=?').
+			findByIdStmt at: #n_airportCodeMapping put: (dbclient prepareStatement:'SELECT content from n_airportCodeMapping where id=?').
 
-			findByIdStmt at: #n_customer put: 'SELECT content from n_customer where id=?'.
-			findByIdStmt at: #n_customerSession put: 'SELECT content from n_customerSession where id=?'.
-			findByIdStmt at: #n_airportCodeMapping put: 'SELECT content from n_airportCodeMapping where id=?'.
+			classMap at: #n_customer put: Loader Customer.
+			classMap at: #n_customerSession put: Loader Session.
+			classMap at: #n_booking put: Loader Booking.
+			classMap at: #n_flight put: Loader Flight.
+			classMap at: #n_flightSegment put: Loader FlightSegment.
+			classMap at: #n_airportCodeMapping put: Loader AirportCodeMapping.
+
     )
 
 		private prepareDB = (
-			| handler |
-			handler:: [ :err :result |
-				err ifNotNil: [
-					self error: 'Failed to create Tables'
-					err println.
-				]
-			].
 
 			(*TODO cleanup*)
+			dbclient execute: 'DROP TABLE n_airportcodemapping' callback: [ :res |] ifFail: [ :sym :msg |].
+      dbclient execute: 'DROP TABLE n_booking' callback: [ :res |] ifFail: [ :sym :msg |].
+      dbclient execute: 'DROP TABLE n_customer' callback: [ :res |] ifFail: [ :sym :msg |].
+      dbclient execute: 'DROP TABLE n_customersession' callback: [ :res |] ifFail: [ :sym :msg |].
+      dbclient execute: 'DROP TABLE n_flight' callback: [ :res |] ifFail: [ :sym :msg |].
+      dbclient execute: 'DROP TABLE n_flightsegment' callback: [ :res |] ifFail: [ :sym :msg |].
 
-			dbconn execute: 'CREATE TABLE n_airportcodemapping(
+			(*TODO cleanup*)
+			dbclient execute: 'CREATE TABLE n_airportcodemapping(
 				id VARCHAR(5000) PRIMARY KEY,
 				content VARCHAR(5000)
-				)' callback: handler.
+				)' callback: [ :res | ].
 
-      dbconn execute: 'CREATE TABLE n_booking(
+      dbclient execute: 'CREATE TABLE n_booking(
 				customerId VARCHAR(5000),
 				id VARCHAR(5000),
 				content VARCHAR(5000),
 				PRIMARY KEY (customerId, id)
-				)' callback: handler.
+				)' callback: [ :res | ].
 
-      dbconn execute: 'CREATE TABLE n_customer(
+      dbclient execute: 'CREATE TABLE n_customer(
 				id VARCHAR(5000) PRIMARY KEY,
 				content VARCHAR(5000)
-				)' callback: handler.
+				)' callback: [ :res | ].
 
-      dbconn execute: 'CREATE TABLE n_customersession(
+      dbclient execute: 'CREATE TABLE n_customersession(
 				id VARCHAR(5000) PRIMARY KEY,
 				content VARCHAR(5000)
-				)' callback: handler.
+				)' callback: [ :res | ].
 
-      dbconn execute: 'CREATE TABLE n_flight(
+      dbclient execute: 'CREATE TABLE n_flight(
 				flightSegmentId VARCHAR(5000),
-				scheduledDepartureTime timestamp,
+				scheduledDepartureTime BIGINT,
 				id VARCHAR(5000),
 				content VARCHAR(5000),
 				PRIMARY KEY (flightSegmentId,scheduledDepartureTime,id)
-				)' callback: handler.
+				)' callback: [ :res | ].
 
-      dbconn execute: 'CREATE TABLE n_flightsegment(
+      dbclient execute: 'CREATE TABLE n_flightsegment(
 				originPort VARCHAR(5000),
 				destPort VARCHAR(5000),
 				id VARCHAR(5000),
 				content VARCHAR(5000),
 				PRIMARY KEY (originPort,destPort,id)
-				)' callback: handler.
+				)' callback: [ :res | ].
 		)
 
     public insertOne: collectionname doc: doc callback: callback = (
-			(insertStmt at: collectionname) execute: (getInsertParam: collectionname doc: doc) callback: [ :err :result |
-				err ifNil: [
-					callback value: nil with: doc.
-				] ifNotNil: [
-					callback value: err with: nil.
-				] 
+			(insertStmt at: collectionname) execute: (getInsertParam: collectionname doc: doc) callback: [ :result |
+				callback value: result.
 			]
     )
 
     public findOne: collectionname key: key callback: callback = (
 			| query |
-			
       query:: findByIdStmt at: collectionname.
 			query ifNil: [
-				callback value: ('FindById not supported on '+collectionname) with: nil.
+				(*TODO error*)
+				callback value: ('FindById not supported on '+collectionname) .
 				^ self.
 			].
-			(*prepare true*)
-			query execute: { key } callback: [ :err :result |
-				err ifNil: [
-					callback value: nil with: (JSON parse: ((result rows at: 0) content))
-				] ifNotNil: [ 
-					callback value: err with: nil
+
+			query execute: { key } callback: [ :result |
+				result size = 0 ifTrue: [
+					callback value: nil.
+				] ifFalse: [
+					callback value: ((classMap at: collectionname) fromJSON: ((result at: 1) at: 1))
 				]
 			]
     )
 
     public update: collectionname doc: doc callback: callback = (
-			(updateStmt at: collectionname) execute: (getUpdateParam: collectionname doc: doc) callback: [ :err :result |
-				err ifNil: [
-					callback value: nil with: doc.
-				] ifNotNil: [
-					callback value: err with: nil.
-				] 
+			(updateStmt at: collectionname) execute: (getUpdateParam: collectionname doc: doc) callback: [ :result |
+					callback value: doc.
 			]
     )
 
-    public remove: collectionname condition: condition callback: callback = (
-      | info query |
-			info:: getQueryInfo: collectionname condition: condition.
-			
-			query:: 'DELETE from '+collectionname+ ' where '+ (info whereStmt).
+    public remove: collectionname condition: condition conditionParam: params callback: callback = (
+      | query |
+				
+			query:: 'DELETE from '+collectionname+ ' where '+ condition.
+			query println.
 			(*logger.debug("query:"+query +", param:"+ JSON.stringify(info.param))*)
-			(dbclient prepareStatement: query) execute: (info param) callback: [ :err :result |
-				err ifNil: [
-					callback value: nil.
-				] ifNotNil: [
-					callback value: err.
-				] 
+			(dbclient prepareStatement: query) execute: params callback: [ :result |
+				callback value.
 			]
     )
 
-    public findBy: collectionname condition: condition callback: callback = (
-      | info query |
-			info:: getQueryInfo: collectionname condition: condition.
+    public findBy: collectionname condition: condition conditionParam: params callback: callback = (
+      | query |
 			
-			query:: 'SELECT content from '+collectionname+ ' where '+ (info whereStmt).
+			query:: 'SELECT content from '+collectionname+ ' where '+ condition.
 			(*logger.debug("query:"+query +", param:"+ JSON.stringify(info.param))*)
-			(dbclient prepareStatement: query) execute: (info param) callback: [ :err :result |
+			(dbclient prepareStatement: query) execute: params callback: [ :result |
 				|docs|
-				err ifNil: [
-					docs:: Vector new.
-					1 to: (result size) do: [ :i |
-						(*logger.debug("result["+i +"]="+ JSON.stringify(result.rows[i]));*)
-						docs append: (JSON parse: ((result at: i) content))
-					].
-					callback value: nil with: docs.
-				] ifNotNil: [
-					callback value: err with: nil.
-				] 
+				
+				docs:: Vector new.
+				1 to: (result size) do: [ :i |
+					(*logger.debug("result["+i +"]="+ JSON.stringify(result.rows[i]));*)
+					(*docs append: (JSON JSONParser parse: ((result at: i) at: 1))*)
+					docs append: ((classMap at: collectionname) fromJSON: ((result at: i) at: 1))
+				].
+				callback value: docs.
 			] 
     )
 
     public count: collectionname condition: condition callback: callback = (
 			| query |
 			query:: 'SELECT COUNT(*) from '+collectionname+ ' where '+ condition.
-			dbclient execute: query callback: [ :err :count |
-				err ifNil: [
-					callback value: nil with: count.
-				] ifNotNil: [
-					(*logger.error("count hit error:"+error);*)
-					callback value: err with: nil.
-				] 
+			dbclient execute: query callback: [ :count |
+				callback value: count.
 			]
     )
 
     getInsertParam: collectionname doc: doc = (
 			collectionname = #n_booking ifTrue: [
-				^ {doc customerId . doc _id . (doc toJSON)}
+				^ {doc customerid . doc _id . (doc toJSON)}
 			].
 
 			collectionname = #n_flight ifTrue: [
-				^ {doc flightSegmentId . doc scheduledDepartureTime . doc _id . (doc toJSON)}
+				^ {doc flightSegmentId . doc scheduledDepartureTime getTime . doc _id . (doc toJSON)}
 			].
 
 			collectionname = #n_flightSegment ifTrue: [
 				^ {doc originPort . doc destPort . doc _id . (doc toJSON)}
 			].
 			
-			^ {doc _id . (doc toJSON)}
+			^ { doc _id . (doc toJSON)}
 		)
 
 		getUpdateParam: collectionname doc: doc = (
 			collectionname = #n_booking ifTrue: [
-				^ {(doc toJSON) . doc customerId . doc _id}
+				^ {(doc toJSON) . doc customerid . doc _id}
 			].
 
 			collectionname = #n_flight ifTrue: [
-				^ {(doc toJSON) . doc flightSegmentId . doc scheduledDepartureTime . doc _id }
+				^ {(doc toJSON) . doc flightSegmentId . doc scheduledDepartureTime getTime . doc _id }
 			].
 
 			collectionname = #n_flightSegment ifTrue: [
@@ -224,22 +217,6 @@ class DataAccess usingPlatform: platform = Value (
 			].
 			
 			^ {(doc toJSON) . doc _id }
-		)
-
-		getQueryInfo: collectionname condition: condition = (
-		(*var param = [];
-		var whereStmt =""
-		var first = true;
-		for (var key in condition) {
-			if (!first) whereStmt +=" and ";
-			if (key === '_id')
-				whereStmt += "id=?";
-			else
-				whereStmt += key +"=?";
-			first = false;
-			param.push(condition[key]);
-		}
-		return {"whereStmt":whereStmt, "param":param};*)
 		)
   )
   

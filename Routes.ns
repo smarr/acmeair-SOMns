@@ -14,22 +14,32 @@
 * limitations under the License.
 *******************************************************************************)
 
-class Routes usingPlatform: platform = Value(
+class Routes usingPlatform: platform dataAccess: dataaccess andJSON: JSON andLoader: loader= Value(
   |
-  Kernel = platform kernel.
-  Vector = Kernel Vector.
-  DataAccess = (platform system loadModule: 'DataAccess.ns' nextTo: self) usingPlatform: platform.
+  private Kernel = platform kernel.
+  private Vector = Kernel Vector.
+  private Loader = loader.
+  private Session = Loader Session.
+  private Date = Kernel Date.
+  private DataAccess = dataaccess.
+  private Dictionary = platform collections Dictionary.
+  private Files = platform files.
+  private Booking = Loader Booking.
+  private JSON = JSON.
+  private SQLException = platform derby SQLException.
+  private Set = platform collections Set.
   |
 )(
 
 public class Routes new: authService settings: settings = (
   |
   uuid = 0.
-  flightCache = 'require(ttl-lru-cache)({maxLength:settings.flightDataCacheMaxSize})'.
-  flightSegmentCache = 'require(ttl-lru-cache)({maxLength:settings.flightDataCacheMaxSize})'.
-  flightDataCacheTTL = 'settings.flightDataCacheTTL == -1 ? null : settings.flightDataCacheTTL'.
+  flightCache = TTL_LRU_Cache new. (*'require(ttl-lru-cache)({maxLength:settings.flightDataCacheMaxSize})'.*)
+  flightSegmentCache = TTL_LRU_Cache new.(*'require(ttl-lru-cache)({maxLength:settings.flightDataCacheMaxSize})'.*)
+  flightDataCacheTTL = 1000000.(*'settings.flightDataCacheTTL == -1 ? null : settings.flightDataCacheTTL'.*)
   dataaccess = DataAccess DataAccess new.
   settings = settings.
+  authService = authService.
   |
 ) (
 
@@ -44,103 +54,99 @@ public class Routes new: authService settings: settings = (
   public checkForValidSessionCookie = (
     ^ [ :req :res | | sessionid |
       sessionid:: req cookie: #sessionid.
-      'checkForValidCookie' println.
-
+      'validating cookie' println.
       sessionid ifNotNil: [
         (*trim sessionid sessiondid = sessionid.trim();*)
       ].
 
-      (sessionid = nil || sessionid = '') ifTrue: [
+      ((sessionid = nil) || (sessionid = '')) ifTrue: [
         'checkForValidCookie - no sessionid cookie so returning 403' println.
         res sendStatus: 403.
         ^ self.
       ].
 
-      validateSession: sessionid callback: [ :err :customerid |
-        err ifTrue: [
-          (*logger.debug('checkForValidCookie - system error validating session so returning 500');*)
-          res sendStatus: 500.
-          ^ self.
-        ].
-
-        customerid ifTrue: [
-          (*logger debug ('checkForValidCookie - good session so allowing next route handler to be called') *)
-          req at: #acmeair_login_user put: customerid.
-        ] ifFalse: [
-          (*logger.debug('checkForValidCookie - bad session so returning 403');*)
-          res sendStatus: 403.
+      [ validateSession: sessionid callback: [ :customerid |
+          customerid ifNil: [
+            (*logger.debug('checkForValidCookie - bad session so returning 403');*)
+            res sendStatus: 403.
+            ^ self.
+          ] ifNotNil: [
+            (*logger debug ('checkForValidCookie - good session so allowing next route handler to be called') *)
+            req at: 'acmeair_login_user' put: customerid.
+          ]
         ]
-      ]
-    ].
+      ] on: SQLException do: [ :error |
+        (*logger.debug('checkForValidCookie - system error validating session so returning 500');*)
+        'error' println.
+        res sendStatus: 500.
+        ^ self.
+      ].
+    ]
   )
 
   public login: req res: res = (
-    | login password |
+    | login password body|
     (*logger.debug('logging in user');*)
-    login:: req at: 'body.login'.
-    password:: req at: 'body.password'.
-  
+    body:: req getQuery.
+    login:: body at: 'login'.
+    password:: body at: 'password'.
     res cookie:'sessionid' with: ''.
-    
-    (* replace eventually with call to business logic to validate customer*)
-    validateCustomer: login password: password callback: [ :err :customerValid |
-      err ifTrue:[
-        res send: error with: 500.
-        ^ self.
-      ].
-      
-      customerValid ifTrue: [
-        createSession: login callback: [ :error :sessionid |
-          error ifTrue:[
-            (*logger.info(error);*)
-            res send: error with: 500.
-            ^ self.
-          ].
 
-          res cookie: 'sessionid' with: sessionid.
-          res send: 'logged in'.
-        ]
-      ] ifFalse: [
-        res sendStatus: 403.
-      ] 
+    [
+      (* replace eventually with call to business logic to validate customer*)
+      validateCustomer: login password: password callback: [ :customerValid | 
+        customerValid ifTrue: [
+          createSession: login callback: [ :sessionid |
+            res cookie: 'sessionid' with: sessionid.
+            res send: 'logged in'.
+          ]
+        ] ifFalse: [
+          res sendStatus: 403.
+        ] 
+      ]
+    ] on: SQLException do: [ :error |
+      (*logger.info(error);*)
+      res send: (error asString) with: 500.
+      ^ self.
     ]
   )
 
   public logout: req res: res = (
     | sessionid login |
     (*logger.debug('logging out user');*)
-    
-    sessionid::  req cookie: #sessionid.
-    login:: req at: 'body.login'.
-    invalidateSession: sessionId callback: [ :err |
+  
+    sessionid::  (req cookie: #sessionid).
+    invalidateSession: sessionid callback: [
       res cookie: 'sessionid' with: ''.
       res send: 'logged out'.
     ]
   )
 
   public queryflights = (
-    ^ [ :req :res | | fromAirport toAirport fromDateWeb fromDate oneWay returnDateWeb returnDate options|
+    ^ [ :req :res | | fromAirport toAirport fromDateWeb fromDate oneWay returnDateWeb returnDate options query|
       (* logger.debug('querying flights');*)
-    
-      fromAirport:: req at: 'body.fromAirport'.
-      toAirport:: req at: 'body.toAirport'.
-      fromDateWeb:: Date new: (req at: 'body.fromDate'). (*TODO make Date*)
+
+      query:: req getQuery.
+      fromAirport:: query at: 'fromAirport'.
+      toAirport:: query at: 'toAirport'.
+      fromDateWeb:: Date new: (query at: 'fromDate'). (*TODO make Date*)
+      
       (*fromDate:: Date new: (fromDateWeb.getFullYear(), fromDateWeb.getMonth(), fromDateWeb.getDate()).*) (*convert date to local timezone*)
-      oneWay:: (req at: 'body.oneWay' = 'true').(*TODO careful here*)
+      oneWay:: (req at: 'body.oneWay') = 'true'.(*TODO careful here*)
       returnDateWeb:: Date new: (req at: 'body.returnDate').
 
       oneWay ifFalse: [
         (*returnDate:: Date new: (returnDateWeb.getFullYear(), returnDateWeb.getMonth(), returnDateWeb.getDate()).*) (*convert date to local timezone*)
       ].
 
-      getFlightByAirportsAndDepartureDate: fromAirport toAirport: toAirport flightDate: fromDate callback: [ :error :flightSegmentOutbound :flightsOutbound |
+      getFlightByAirportsAndDepartureDate: fromAirport toAirport: toAirport flightDate: fromDate callback: [ :flightSegmentOutbound :flightsOutbound |
         | _flightsOutbound |
         (*logger.debug('flightsOutbound = ' + flightsOutbound);*)
         flightsOutbound ifNil: [
           _flightsOutbound:: Vector new: 0.
         ] ifNotNil: [
           _flightsOutbound:: flightsOutbound.
-          1 to: (_flightsOutbound length) do: [ :ii |
+          1 to: (_flightsOutbound size) do: [ :ii |
             (_flightsOutbound at: ii) flightSegment: flightSegmentOutbound.
           ]
         ].
@@ -149,26 +155,26 @@ public class Routes new: authService settings: settings = (
           (*TODO serialize flightsOutbound and return*)
           options:: ('{"tripFlights":
             [
-            {"numPages":1,"flightsOptions": ' + _flightsOutbound + ',"currentPage":0,"hasMoreOptions":false,"pageSize":10}
+            {"numPages":1,"flightsOptions": ' + (VectorToJson: _flightsOutbound) + ',"currentPage":0,"hasMoreOptions":false,"pageSize":10}
             ], "tripLegs":1}').
           res send: options.
         ] ifFalse: [
-          getFlightByAirportsAndDepartureDate: toAirport toAirport: fromAirport flightDate: returnDate callback: [ :error :flightSegmentReturn :flightsReturn |
+          getFlightByAirportsAndDepartureDate: toAirport toAirport: fromAirport flightDate: returnDate callback: [ :flightSegmentReturn :flightsReturn |
             | _flightsReturn |
             (*logger.debug('flightsReturn = ' + JSON.stringify(flightsReturn));*)
             flightsReturn  ifNil: [
               _flightsReturn:: Vector new: 0.
             ] ifNotNil: [
               _flightsReturn:: flightsReturn.
-              1 to: (flightsReturn length) do: [ :ii |
+              1 to: (flightsReturn size) do: [ :ii |
                 (_flightsReturn at: ii) flightSegment: flightSegmentReturn.
               ]
             ].
 
             options:: ('{"tripFlights":
               [
-              {"numPages":1,"flightsOptions": ' + _flightsOutbound + ',"currentPage":0,"hasMoreOptions":false,"pageSize":10},
-              {"numPages":1,"flightsOptions": ' + _flightsReturn + ',"currentPage":0,"hasMoreOptions":false,"pageSize":10}
+              {"numPages":1,"flightsOptions": ' + (VectorToJson: _flightsOutbound) + ',"currentPage":0,"hasMoreOptions":false,"pageSize":10},
+              {"numPages":1,"flightsOptions": ' + (VectorToJson: _flightsReturn) + ',"currentPage":0,"hasMoreOptions":false,"pageSize":10}
               ], "tripLegs":2}').
             res send: options.
           ]
@@ -177,24 +183,41 @@ public class Routes new: authService settings: settings = (
     ].
   )
 
+  private VectorToJson: aVector = (
+    | result |
+    result:: '['.
+
+    aVector size > 0 ifTrue: [
+      result:: result + ((aVector at: 1) toJSON).
+      2 to: (aVector size) do: [ :i |
+        result:: result + ', ' + ((aVector at: i) toJSON).
+      ]
+    ].
+
+    result:: result + ']'.
+    ^result
+  )
+
   public bookflights = (
-    ^ [ :req :res | | userid toFlight retFlight oneWay bookingInfo|
+    ^ [ :req :res | | query userid toFlight retFlight oneWay bookingInfo|
       (* logger.debug('booking flights'); *)
       
-      userid:: req at: 'body.userid'.
-      toFlight:: req at: 'body.toFlightId'.
-      retFlight:: req at: 'body.retFlightId'.
-      oneWay:: (req at: 'body.oneWayFlight' = 'true').
+      query:: req getQuery.
+      userid:: query at: 'userid'.
+      toFlight:: query at: 'toFlightId'.
+      retFlight:: query at: 'retFlightId'.
+      oneWay:: (query at: 'oneWayFlight') = 'true'.
       
       (* logger.debug("toFlight:"+toFlight+",retFlight:"+retFlight); *)
-      
-      bookFlight: toFlight userid: userid callback: [ :error :toBookingId |
+
+      bookFlight: toFlight userid: userid callback: [ :toBookingId |
+        'done println.'
         oneWay ifTrue: [
           bookingInfo:: ('{"oneWay":true,"departBookingId":' + toBookingId + '};').
           res header: 'Cache-Control' value: 'no-cache'.
           res send: bookingInfo.
         ] ifFalse: [
-          bookFlight: retFlight userid: userid callback: [ :error :retBookingId |
+          bookFlight: retFlight userid: userid callback: [ :retBookingId |
             bookingInfo:: ('{"oneWay":false,"returnBookingId":' + retBookingId + ',"departBookingId":' + toBookingId + '}').
             res header: 'Cache-Control' value: 'no-cache'.
             res send: bookingInfo.
@@ -205,62 +228,52 @@ public class Routes new: authService settings: settings = (
   )
 
   public cancelBooking = (
-    ^ [ :req :res | | number userid|
+    ^ [ :req :res | | number userid query|
       (*logger.debug('canceling booking');*)
-      
-      number:: req at: 'body.number'.
-      userid:: req at: 'body.userid'.
-      
-      cancelBooking: number userid: userid callback: [ :error |
-        error ifTrue: [
-          res send: '{"status":"error"}'.
-        ] ifFalse: [
-          res send: '{"status":"success"}'.
-        ]
+      query:: (req getQuery).
+      number:: query at: 'number'.
+      userid:: query at: 'userid'.
+      number println.
+      userid println.
+      [ 
+        cancelBooking: number userid: userid callback: [ res send: '{"status":"success"}' ]
+      ] on: SQLException do: [ :error |
+        res send: '{"status":"error"}'.
       ]
     ].
   )
 
   public bookingsByUser = (
-    ^ [ :req :res | | |
+    ^ [ :req :res |
       (*logger.debug('listing booked flights by user ' + req.params.user);*)
-  
-      getBookingsByUser: (req at: 'params.user') callback: [ :err :bookings |
-        err ifTrue: [
-          res sendStatus: 500.
-        ] ifFalse: [
-          res send: bookings.
-        ]
+      [ 
+        getBookingsByUser: (req at: 'params.user') callback: [ :bookings | res send: (VectorToJson: bookings) ]
+      ] on: SQLException do: [ :error |
+        res sendStatus: 500.
       ]
     ].
   )
 
   public getCustomerById = (
-    ^ [ :req :res | | |
+    ^ [ :req :res |
       (*logger.debug('getting customer by user ' + req.params.user);*)
-    
-      getCustomer: (req at: 'params.user') callback: [ :err :customer |
-        err ifTrue: [
-          res sendStatus: 500.
-        ] ifFalse: [
-          res send: customer.
-        ]
+      [
+        getCustomer: (req at: 'params.user') callback: [ :customer | res send: (customer toJSON) ]
+      ] on: SQLException do: [ :error |
+        res sendStatus: 500.  
       ]
     ].
   )
 
   public putCustomerById = (
-    ^ [ :req :res | | |
+    ^ [ :req :res |
         (*logger.debug('putting customer by user ' + req.params.user);*)
-    
-        updateCustomer: (req at: 'params.user') customer: (req body) callback: [ :err :customer|
-          err ifTrue:[
-            res sendStatus: 500.
-          ] ifFalse: [
-            res send: customer.
-          ]
-        ]
-      ].
+      [
+        updateCustomer: (req at: 'params.user') customer: (req body) callback: [ :customer | res send: (customer toJSON) ]
+      ] on: SQLException do: [ :error |
+        res sendStatus: 500.  
+      ]
+    ]
   )
 
   public toGMTString = (
@@ -286,113 +299,93 @@ public class Routes new: authService settings: settings = (
 
   public getActiveDataServiceInfo = (
     ^ [ :req :res |
-      res send: dbtype.
+      res send: 'derby'.
     ].
   )
 
   public countBookings = (
     ^ [ :req :res |
-      countItems: #n_booking callback: [ :error :count |
-        error ifTrue: [
-          res send: '-1'.
-        ] ifFalse: [
-          res send: ('' + count).
-        ]
+      [ 
+        countItems: #n_booking callback: [ :count | res send: ((count at: 1) at: 1) ]
+      ] on: SQLException do: [ :error |
+        error println.
+        res send: -1.
       ]
     ].
   )
 
   public countCustomer = (
     ^ [ :req :res |
-      countItems: #n_customer callback: [ :error :count |
-        error ifTrue: [
-          res send: '-1'.
-        ] ifFalse: [
-          res send: ('' + count).
-        ]
+      [ 
+        countItems: #n_customer callback: [ :count | res send: ((count at: 1) at: 1) ]
+      ] on: SQLException do: [ :error |
+        res send: -1.
       ]
     ].
   )
 
   public countCustomerSessions= (
-    ^ [ :req :res | | |
-      countItems: #n_customerSession callback: [ :error :count |
-        error ifTrue: [
-          res send: '-1'.
-        ] ifFalse: [
-          res send: ('' + count).
-        ]
+    ^ [ :req :res |
+      [ 
+        countItems: #n_customerSession callback: [ :count | res send: ((count at: 1) at: 1) ]
+      ] on: SQLException do: [ :error |
+        res send: -1.
       ]
     ].
   )
 
   public countFlights = (
-    ^ [ :req :res | | |
-      countItems: #n_flight callback: [ :error :count |
-        error ifTrue: [
-          res send: '-1'.
-        ] ifFalse: [
-          res send: ('' + count).
-        ]
+    ^ [ :req :res |
+      [ 
+        countItems: #n_flight callback: [ :count | res send: ((count at: 1) at: 1) ] 
+      ] on: SQLException do: [ :error |
+        res send: -1.
       ]
     ].
   )
 
   public countFlightSegments = (
-    ^ [ :req :res | | |
-      countItems: #n_flightSegment callback: [ :error :count |
-        error ifTrue: [
-          res send: '-1'.
-        ] ifFalse: [
-          res send: ('' + count).
-        ]
+    ^ [ :req :res |
+      [ 
+        countItems: #n_flightSegment callback: [ :count | res send: ((count at: 1) at: 1) ]
+      ] on: SQLException do: [ :error |
+        res send: -1.
       ]
     ].
   )
 
   public countAirports = (
-    ^ [ :req :res | | |
-      countItems: #n_airportCodeMapping callback: [ :error :count |
-        error ifTrue: [
-          res send: '-1'.
-        ] ifFalse: [
-          res send: ('' + count).
-        ]
+    ^ [ :req :res |
+      [ 
+        countItems: #n_airportCodeMapping callback: [ :count | res send: ((count at: 1) at: 1) ]
+      ] on: SQLException do: [ :error |
+        res send: -1.
       ]
     ].
   )
 
   countItems: dbName callback: callback = (
     (*console.log("Calling count on " + dbName);*)
-    
-    dataaccess count: dbName condition: '{}' callback: [ :error :count |
+    dataaccess count: dbName condition: 'true' callback: [ :count |
       (*console.log("Output for "+dbName+" is "+count);*)
-      error ifTrue: [
-        callback value: error with: nil.
-      ] ifFalse: [
-        callback value: nil with: count.
-      ]
+      callback value: count.
     ]
   )
 
   validateCustomer: username password: password callback: callback = (
-    
-    dataaccess findOne: #n_customer key: username callback: [ :error :customer |
-        error ifTrue: [
-          called value: error with: nil.
-        ] ifFalse: [
-          customer ifTrue: [
-            callback value: nil with: (customer password = password).
-          ] ifFalse: [
-            callback value: nil with: false.
-          ]
-        ]
+    dataaccess findOne: #n_customer key: username callback: [ :customer |
+      customer ifNil: [
+        callback value: false
+      ] ifNotNil: [
+        callback value: ((customer password) = password)
+      ]. 
     ]
   )
 
   createSession: customerId callback: callback = (
     | now later document docId|
-    authService ifTrue: [
+      
+    authService ifNotNil: [
       authService createSession callback: callback.
       ^ self.
     ].
@@ -400,41 +393,30 @@ public class Routes new: authService settings: settings = (
     now:: Date new.
     later:: Date new: (now getTime + 1000*60*60*24).
       
-    docId:: uuid v4.
-    document:: '{ "_id" : ' + docId + ', "customerid" : ' + customerId + ', "lastAccessedTime" : ' + now + ', "timeoutTime" : ' + later + ' }'.
+    docId:: Files getUUIDV4.
+    document:: Session new: docId customer: customerId last: now timeout: later.
 
-    dataaccess insertOne: #n_customerSession doc: document callback: [ :error :doc |
-      error ifTrue: [
-        callback value: error with: null.
-      ] ifFalse: [
-        callback value: error with: docId.
-      ]
+    dataaccess insertOne: #n_customerSession doc: document callback: [ :doc |
+      callback value: docId.
     ] 
   )
 
   validateSession: sessionId callback: callback = (
     | now |
-    authService ifTrue:[
+    authService ifNotNil:[
       authService validateSession: sessionId callback: callback.
       ^ self.
     ].
 
     now:: Date new.
-      
-    dataaccess findOne: #n_customerSession key: sessionId callback: [ :err :session |
-      err ifTrue: [
-        callback value: err with: nil.
-      ] ifFalse: [
-        now > (session timeoutTime) ifTrue: [
-          dataaccess remove: #n_customerSession condition: ('{"_id":' + sessionId + '}') callback: [ :error |
-            error ifTrue: [
-              callback value: error with: nil.
-            ] ifFalse: [
-              callback value: nil with: nil.
-            ]
-          ]
+    dataaccess findOne: #n_customerSession key: sessionId callback: [ :session |
+      session ifNil: [
+        callback value: nil.
+      ] ifNotNil: [
+        (now getTime) > (session timeoutTime getTime) ifTrue: [
+          dataaccess remove: #n_customerSession condition: 'id=?' conditionParam: {sessionId} callback: [ callback value: nil ]
         ] ifFalse: [
-          callback value: nil with: (session customerid).
+          callback value: (session customerid).
         ]
       ]
     ]
@@ -449,50 +431,45 @@ public class Routes new: authService settings: settings = (
   )
 
   getBookingsByUser: username callback: callback = (
-    dataaccess findBy: #n_booking condition: ('{"customerId":' + username + '}') callback: callback
+    dataaccess findBy: #n_booking condition: 'customerId=?' conditionParam: {username} callback: callback
   )
 
   invalidateSession: sessionId callback: callback = (
-    authService ifTrue: [
+    'invalidating.' println.
+    authService ifNotNil: [
       authService invalidateSession: sessionId callback: callback.
       ^ self.
     ].
       
-    dataaccess remove: #n_customerSession condition: ('{"_id":' + sessionid + '}') callback: callback. 
+    dataaccess remove: #n_customerSession condition: 'id=?' conditionParam: { sessionId} callback: callback. 
   )
 
   getFlightByAirportsAndDepartureDate: fromAirport toAirport: toAirport flightDate: flightDate callback: callback = (
-    
+    'getflight' println.
     (*logger.debug("getFlightByAirportsAndDepartureDate " + fromAirport + " " + toAirport + " " + flightDate);*)
     
-    getFlightSegmentByOriginPortAndDestPort: fromAirport toAirport: toAirport callback: [ :error :flightsegment | 
+    getFlightSegmentByOriginPortAndDestPort: fromAirport toAirport: toAirport callback: [ :flightsegment | 
     | date flights cacheKey searchCriteria docsEmpty |
-      error ifTrue: [
-        (* TODO
-        logger.error("Hit error:"+error);
-        throw error;*)
-        self error: error.
-      ].
-      
+      'getflightsegmentcallback' println.
       (*logger.debug("flightsegment = " + JSON.stringify(flightsegment));*)
 
-      flightSegment ifFalse: [
-        callback valueWithArguments: { nil . nil. nil }.
+      flightsegment ifNil: [
+        callback value: nil with: nil.
         ^ self.
       ].
-      
-      (*TODO date:: Date new: (flightDate.getFullYear(), flightDate.getMonth(), flightDate.getDate(),0,0,0,0).*)
+
+      date:: Date new: ((Date new) getTime - ((Date new) getTime % (1000 * 60 * 60 * 24))).
   
       cacheKey:: (flightsegment _id) + '-' + (date getTime). (* TODO *)
       (settings at: #useFlightDataRelatedCaching) ifTrue: [
         flights:: flightCache get: cacheKey.
-        flights ifTrue: [
+        flights ifNotNil: [
           (*logger.debug("cache hit - flight search, key = " + cacheKey);*)
           
           flights = 'null' ifTrue: [
-            callback valueWithArguments: { nil . flightsegment . nil}.
+            callback value: flightsegment with: nil.
           ] ifFalse: [
-            callback valueWithArguments: { nil . flightsegment . flights}.
+            callback value: flightsegment with: flights.
           ].
           ^ self.
         ].
@@ -500,41 +477,42 @@ public class Routes new: authService settings: settings = (
         (*logger.debug("cache miss - flight search, key = " + cacheKey + " flightCache size = " + flightCache.size());*)
       ].
       
-      searchCriteria = ('{flightSegmentId: ' + (flightsegment _id) + ', scheduledDepartureTime: ' + date + '}').
-      dataaccess findBy: #n_flight condition: searchCriteria callback: [ :err :docs |
+      dataaccess findBy: #n_flight condition: 'flightSegmentId=? and scheduledDepartureTime=?' conditionParam: {(flightsegment _id) . date getTime}  callback: [ :docs |
         | docsEmpty cacheValue |
-        err ifTrue:[
-          (*)ogger.error("hit error:"+err);*)
-          callback valueWithArguments: { err . nil . nil }.
-        ] ifFalse: [
-          (*'after cache miss - key = ' + cacheKey + ', docs = ' + JSON stringify: docs*)
-  
-          docsEmpty:: docs = nil || (docs length) == 0.
-          (settings at: #useFlightDataRelatedCaching) ifTrue: [
-            docsEmpty ifTrue: [cacheValue:: 'NULL'] ifFalse: [cacheValue:: docs].
+        (*'after cache miss - key = ' + cacheKey + ', docs = ' + JSON stringify: docs*)
 
-            (*'about to populate the cache with flights key = ' + cacheKey + ' with value of ' + JSON stringify: cacheValue*)
-            flightCache set: cacheKey to: cacheValue with: flightDataCacheTTL.
-            (*'after cache populate with key = ' + cacheKey + ', flightCacheSize = ' + flightCache size*)
-          ].
+        docsEmpty:: false.
+        docs ifNil: [
+          docsEmpty:: true
+        ] ifNotNil: [
+          docs size = 0 ifTrue: [
+            docsEmpty:: true.
+          ]
+        ].
 
-          callback valueWithArguments: { nil . flightsegment . docs }.
-        ]
+        (settings at: #useFlightDataRelatedCaching) ifTrue: [
+          docsEmpty ifTrue: [cacheValue:: 'NULL'] ifFalse: [cacheValue:: docs].
+
+          (*'about to populate the cache with flights key = ' + cacheKey + ' with value of ' + JSON stringify: cacheValue*)
+          flightCache set: cacheKey to: cacheValue for: flightDataCacheTTL.
+          (*'after cache populate with key = ' + cacheKey + ', flightCacheSize = ' + flightCache size*)
+        ].
+
+        callback value: flightsegment with: docs.
       ]
     ]
   )
 
   getFlightSegmentByOriginPortAndDestPort: fromAirport toAirport: toAirport callback: callback = (
     | segment |
-    
     (settings at: #useFlightDataRelatedCaching) ifTrue: [
       segment:: flightSegmentCache get: (fromAirport + toAirport).
       segment ifNotNil: [
         (*logger debug ("cache hit - flightsegment search, key = " + fromAirport+toAirport);*)
         segment = 'NULL' ifTrue: [
-          callback value: nil with: nil.
+          callback value: nil.
         ] ifFalse: [
-          callback value: nil with: segment.
+          callback value: segment.
         ]. 
         ^ self.
       ]. 
@@ -542,44 +520,167 @@ public class Routes new: authService settings: settings = (
       (*logger debug ('cache miss - flightsegment search, key = ' + fromAirport+toAirport + ', flightSegmentCache size = ' + flightSegmentCache.size());*)
     ].
     
-    dataaccess findBy: #n_flightSegment condition: ('{originPort: ' + fromAirport + ', destPort: ' + toAirport + '}') callback: [ :err :docs |
-      err ifTrue:[
-        callback value: err with: nil.
-      ] ifFalse: [
-        segment:: docs at: 1.
-        (settings at: #useFlightDataRelatedCaching) ifTrue: [
-          (*'about to populate the cache with flightsegment key = ' + fromAirport+toAirport + ' with value of ' + JSON stringify: segment*)
-          segment ifNil: [
-            flightSegmentCache set: (fromAirport+toAirport) to: 'NULL' with: flightDataCacheTTL.
-          ] ifNotNil: [
-            flightSegmentCache set: (fromAirport+toAirport) to: segment with: flightDataCacheTTL.
-          ].
-          (*'after cache populate with key = ' + fromAirport+toAirport + ', flightSegmentCacheSize = ' + (flightSegmentCache size)*)
+    dataaccess findBy: #n_flightSegment condition: 'originPort=? and destPort=?' conditionParam: {fromAirport . toAirport} callback: [ :docs |
+      segment:: docs at: 1.
+      (settings at: #useFlightDataRelatedCaching) ifTrue: [
+        (*'about to populate the cache with flightsegment key = ' + fromAirport+toAirport + ' with value of ' + JSON stringify: segment*)
+        segment ifNil: [
+          flightSegmentCache set: (fromAirport+toAirport) to: 'NULL' for: flightDataCacheTTL.
+        ] ifNotNil: [
+          flightSegmentCache set: (fromAirport+toAirport) to: segment for: flightDataCacheTTL.
         ].
-        callback value: nil with: segment.
+        (*'after cache populate with key = ' + fromAirport+toAirport + ', flightSegmentCacheSize = ' + (flightSegmentCache size)*)
       ].
+      callback value: segment.
     ]
   )
 
   bookFlight: flightId userid: userid callback: callback = (
     | now docId document |
+    'booking' println.
     now:: Date new.
-    docId:: uuid v4. (* TODO *)
-    document:: '{ "_id" : ' + docId + ', "customerId" : ' + userid + ', "flightId" : ' + flightId + ', "dateOfBooking" : ' + now + ' }'.
-    
-    
-    dataaccess insertOne: #n_booking doc: document callback: [ :err |
-      callback value: err with: docId.
-    ]
-    
+    docId:: Files getUUIDV4.
+    document:: Booking new: docId customer: userid flight: flightId time: now.
+    dataaccess insertOne: #n_booking doc: document callback: [ callback value: docId ]
   )
 
   cancelBooking: bookingId userid: userid callback: callback = (
-    dataaccess remove: #n_booking condition: ('{"_id":' + bookingid + ', "customerId":' + userid + '}') callback: callback.
+    dataaccess remove: #n_booking condition: 'id=? and customerId=?' conditionParam: {bookingId . userid} callback: callback.
   )
-  
 ) : (
   
+)
+
+public class TTL_LRU_Cache = (
+  |
+    cache ::= Dictionary new.
+    lru ::= Vector new.
+    lruId ::= 1.
+    gcInterval = 30000. (* How often GC happens*)
+    maxLength = 1000. (* Maximum number of items that can be held in the cache by default. *)
+    lruWriteCleanup = 100. (* Run the LRU clean up every 'lruWriteCleanUp' writes *)
+  |
+
+    (*juse timerprim to periodically call gc*)
+)(
+  private class MyDict = Dictionary (
+
+  ) (
+    public remove: key = (
+      | newDict |
+      newDict:: MyDict new: self capacity.
+
+      self keys do: [ :k |
+        k = key ifFalse: [
+                  newDict at: k put: (self at: k)
+                ]
+      ].
+
+      ^ newDict.
+    )
+  )
+
+  private class CacheEntry new: value = (
+    |
+      public value = value.
+      public expire
+    |
+  ) ()
+
+  public clear = (
+    (*set cahce and lru empty*)
+  )
+
+  public del: key = (
+    var item = cache at: key.
+    item ifNotNil: [
+      lru removeValue: key.
+      cache:: cache remove: key.
+    ]
+  )
+
+  public garbageCollection = (
+    cache keys do: [ :key |
+      | item |
+      item:: cache at: key.
+      item expire <= (Date now) ifTrue: [
+        expire: key item: item.
+      ]
+    ].
+    lruClean
+  )
+
+  public lruClean = (
+    | overage cacheId |
+    overage:: cache size - maxLength. 
+    (*make new lru und cache, copy stuff that isnt deleted...*)
+
+    (*remove the overage oldest entries*)
+    1 to: overage do: [ :i |
+      cacheId:: lru removeFirst.
+      cache:: cache remove: cacheId.
+    ]
+
+    (*remove 1 to overage from lru*)
+  )
+
+  public expire: key item: item = (
+    del: key.
+    (*instance.emit('expired', key, item.value)*)
+  )
+
+  public set: key to: value for: ttl = (
+    | item |
+    key ifNil: [
+      (*error*)
+    ].
+
+    item:: CacheEntry new: value.
+    ttl ifNotNil: [
+      item expire: ((Date new) getTime + ttl).
+    ].
+
+    cache at: key put: item.
+    lru append: key.
+    lruId:: lruId + 1.
+    
+    (lruId % lruWriteCleanup) = 0 ifTrue: [
+      lruClean.
+    ]
+  )
+
+  public get: key = (
+    | response item |
+    item:: cache at: key.
+    item ifNotNil: [
+      item expire ifNotNil: [
+        item expire < (Date new getTime) ifTrue: [
+          expire: key item: item.
+          ^ nil.
+        ]
+      ].
+
+      response:: item value.
+      
+      lru removeValue: key.
+      lru append: key.
+      lruId:: lruId + 1.
+    ].
+    ^ response
+  )
+
+  public size = (
+      garbageCollection.
+      return cache size.
+  )
+
+  public dump = (
+    ^ cache
+  )
+    
+  public close = (
+    (*todo stop timerprim*)
+  )
 )
 
 )

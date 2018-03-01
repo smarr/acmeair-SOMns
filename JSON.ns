@@ -1,15 +1,18 @@
 class JSON usingPlatform: platform = Value (|
   Vector = platform kernel Vector.
   Streams = platform streams.
+  Exception = platform kernel Exception.
+  Dictionary = platform collections Dictionary.
 |
 )(
   private class JsonParseError signalFor: str at: idx = Exception <: Value (
   | public string = str.
     public index  = idx.
   |
-    signal
+    self signal
+    asString println.
   )(
-    public message = (
+    public asString = (
       ^ 'JSON parse error. Unexpected character at ' + index + ' in "' + string + '".'.
     )
   )
@@ -184,17 +187,6 @@ class JSON usingPlatform: platform = Value (|
     )
   )
 
-  public class JSONPair new: name value: val = (
-    |
-      public value = val.
-      public key = name.
-    |
-  )(
-    public asString = (
-      ^ 'JSONPair( ' + key + ' : ' + value +' )'
-    )
-  )
-
   public class JSONParser = (|
     tokens
   |
@@ -223,7 +215,7 @@ class JSON usingPlatform: platform = Value (|
 
     object = (
       | pairs |
-      pairs:: Vector new.
+      pairs:: Dictionary new.
       consume: #leftBrace.
 
       (peek: #string) ifTrue:[
@@ -235,21 +227,21 @@ class JSON usingPlatform: platform = Value (|
     )
 
     members: pairs = (
-      pairs append: pair.
+      pair: pairs.
       (peek: #comma) ifTrue: [
         tokens next.
         members: pairs.
       ]
     )
 
-    pair = (
+    pair: pairs = (
       | key val |      
       key:: consume: #string.
 
       consume: #colon.
       val:: value.
       
-      ^ JSONPair new: key value: val.
+      pairs at: (key asSymbol) put: val.
     )
 
     array = (
