@@ -76,8 +76,8 @@ class JSON usingPlatform: platform = Value (|
 
       readFraction.
       tokens append: (JsonToken new: endCapture asInteger with: #number).
-      (*fix for readNumber looking ahead and swallowing commas*)
-      current = ',' ifTrue: [ ^ tokens append: (JsonToken new: current with: #comma) ]
+      (*fix for readNumber looking ahead and swallowing tokens*)
+      readToken.
     )
 
     readFraction = (
@@ -195,7 +195,6 @@ class JSON usingPlatform: platform = Value (|
       | tok tokenizer |
       tokenizer:: JsonTokenizer new.
       tok:: tokenizer tokenize: str.
-
       tokens:: Streams SeqCltnReadStream on: tok.
       ^ object
     )

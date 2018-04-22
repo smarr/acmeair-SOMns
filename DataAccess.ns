@@ -1,5 +1,6 @@
 (*******************************************************************************
 * Copyright (c) 2015 IBM Corp.
+* Copyright (c) 2018 Dominik Aumayr
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -34,32 +35,35 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
     |
   )(
 
-    public initializeDatabaseConnections: callback = (
-			dbclient:: Derby getConnection: 'acmeair'.
+    public initializeDatabaseConnections: clear callback: callback = (
+			Derby start.
+			dbclient:: Derby connect: 'acmeair'.
 			callback value: nil.
 			(* TODO error handling for connection
 			logger.info('Connected.');
 			*)
 
-			(*prepareDB.*)
+			clear ifTrue:[
+				prepareDB.
+			].
 
-			insertStmt at: #n_customer put: (dbclient prepareStatement:'INSERT INTO n_customer (id,content) values (?, ?)').
-			insertStmt at: #n_customerSession put: (dbclient prepareStatement: 'INSERT INTO n_customerSession (id,content) values (?, ?)').
-			insertStmt at: #n_booking put: (dbclient prepareStatement: 'INSERT INTO n_booking (customerId,id,content) values (?, ?, ?)').
-			insertStmt at: #n_flight put: (dbclient prepareStatement: 'INSERT INTO n_flight (flightSegmentId,scheduledDepartureTime,id,content) values (?, ?, ?, ?)').
-			insertStmt at: #n_flightSegment put: (dbclient prepareStatement: 'INSERT INTO n_flightSegment (originPort,destPort,id,content) values (?, ?, ?,?)').
-			insertStmt at: #n_airportCodeMapping put: (dbclient prepareStatement: 'INSERT INTO n_airportCodeMapping (id,content) values (?, ?)').
-			 
-			updateStmt at: #n_customer put: (dbclient prepareStatement:'UPDATE n_customer SET content = ? WHERE id=?').
-			updateStmt at: #n_customerSession put: (dbclient prepareStatement: 'UPDATE n_customerSession SET content = ? WHERE id=?').
-			updateStmt at: #n_booking put: (dbclient prepareStatement: 'UPDATE n_booking SET content = ? WHERE customerId = ? AND id=?').
-			updateStmt at: #n_flight put: (dbclient prepareStatement: 'UPDATE n_flight SET content = ? WHERE flightSegmentId = ? AND scheduledDepartureTime = ? AND id=?').
-			updateStmt at: #n_flightSegment put: (dbclient prepareStatement: 'UPDATE n_flightSegment SET content = ? WHERE originPort = ? AND destPort = ? AND id=?').
-			updateStmt at: #n_airportCodeMapping put: (dbclient prepareStatement: 'UPDATE n_airportCodeMapping SET content = ? WHERE id=?').
-			
-			findByIdStmt at: #n_customer put: (dbclient prepareStatement:'SELECT content from n_customer where id=?').
-			findByIdStmt at: #n_customerSession put: (dbclient prepareStatement:'SELECT content from n_customerSession where id=?').
-			findByIdStmt at: #n_airportCodeMapping put: (dbclient prepareStatement:'SELECT content from n_airportCodeMapping where id=?').
+			insertStmt at: #n_customer put: (dbclient <-: prepareStatement:'INSERT INTO n_customer (id,content) values (?, ?)').
+			insertStmt at: #n_customerSession put: (dbclient <-: prepareStatement: 'INSERT INTO n_customerSession (id,content) values (?, ?)').
+			insertStmt at: #n_booking put: (dbclient <-: prepareStatement: 'INSERT INTO n_booking (customerId,id,content) values (?, ?, ?)').
+			insertStmt at: #n_flight put: (dbclient <-: prepareStatement: 'INSERT INTO n_flight (flightSegmentId,scheduledDepartureTime,id,content) values (?, ?, ?, ?)').
+			insertStmt at: #n_flightSegment put: (dbclient <-: prepareStatement: 'INSERT INTO n_flightSegment (originPort,destPort,id,content) values (?, ?, ?,?)').
+			insertStmt at: #n_airportCodeMapping put: (dbclient <-: prepareStatement: 'INSERT INTO n_airportCodeMapping (id,content) values (?, ?)').
+
+			updateStmt at: #n_customer put: (dbclient <-: prepareStatement:'UPDATE n_customer SET content = ? WHERE id=?').
+			updateStmt at: #n_customerSession put: (dbclient <-: prepareStatement: 'UPDATE n_customerSession SET content = ? WHERE id=?').
+			updateStmt at: #n_booking put: (dbclient <-: prepareStatement: 'UPDATE n_booking SET content = ? WHERE customerId = ? AND id=?').
+			updateStmt at: #n_flight put: (dbclient <-: prepareStatement: 'UPDATE n_flight SET content = ? WHERE flightSegmentId = ? AND scheduledDepartureTime = ? AND id=?').
+			updateStmt at: #n_flightSegment put: (dbclient <-: prepareStatement: 'UPDATE n_flightSegment SET content = ? WHERE originPort = ? AND destPort = ? AND id=?').
+			updateStmt at: #n_airportCodeMapping put: (dbclient <-: prepareStatement: 'UPDATE n_airportCodeMapping SET content = ? WHERE id=?').
+
+			findByIdStmt at: #n_customer put: (dbclient <-: prepareStatement:'SELECT content from n_customer where id=?').
+			findByIdStmt at: #n_customerSession put: (dbclient <-: prepareStatement:'SELECT content from n_customerSession where id=?').
+			findByIdStmt at: #n_airportCodeMapping put: (dbclient <-: prepareStatement:'SELECT content from n_airportCodeMapping where id=?').
 
 			classMap at: #n_customer put: Loader Customer.
 			classMap at: #n_customerSession put: Loader Session.
@@ -67,43 +71,42 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
 			classMap at: #n_flight put: Loader Flight.
 			classMap at: #n_flightSegment put: Loader FlightSegment.
 			classMap at: #n_airportCodeMapping put: Loader AirportCodeMapping.
-
     )
 
 		private prepareDB = (
 
 			(*TODO cleanup*)
-			dbclient execute: 'DROP TABLE n_airportcodemapping' callback: [ :res |] ifFail: [ :sym :msg |].
-      dbclient execute: 'DROP TABLE n_booking' callback: [ :res |] ifFail: [ :sym :msg |].
-      dbclient execute: 'DROP TABLE n_customer' callback: [ :res |] ifFail: [ :sym :msg |].
-      dbclient execute: 'DROP TABLE n_customersession' callback: [ :res |] ifFail: [ :sym :msg |].
-      dbclient execute: 'DROP TABLE n_flight' callback: [ :res |] ifFail: [ :sym :msg |].
-      dbclient execute: 'DROP TABLE n_flightsegment' callback: [ :res |] ifFail: [ :sym :msg |].
+			dbclient <-: execute: 'DROP TABLE n_airportcodemapping' callback: [ :res |] ifFail: [ :sym :msg |].
+      dbclient <-: execute: 'DROP TABLE n_booking' callback: [ :res |] ifFail: [ :sym :msg |].
+      dbclient <-: execute: 'DROP TABLE n_customer' callback: [ :res |] ifFail: [ :sym :msg |].
+      dbclient <-: execute: 'DROP TABLE n_customersession' callback: [ :res |] ifFail: [ :sym :msg |].
+      dbclient <-: execute: 'DROP TABLE n_flight' callback: [ :res |] ifFail: [ :sym :msg |].
+      dbclient <-: execute: 'DROP TABLE n_flightsegment' callback: [ :res |] ifFail: [ :sym :msg |].
 
 			(*TODO cleanup*)
-			dbclient execute: 'CREATE TABLE n_airportcodemapping(
+			dbclient <-: execute: 'CREATE TABLE n_airportcodemapping(
 				id VARCHAR(5000) PRIMARY KEY,
 				content VARCHAR(5000)
 				)' callback: [ :res | ].
 
-      dbclient execute: 'CREATE TABLE n_booking(
+      dbclient <-: execute: 'CREATE TABLE n_booking(
 				customerId VARCHAR(5000),
 				id VARCHAR(5000),
 				content VARCHAR(5000),
 				PRIMARY KEY (customerId, id)
 				)' callback: [ :res | ].
 
-      dbclient execute: 'CREATE TABLE n_customer(
+      dbclient <-: execute: 'CREATE TABLE n_customer(
 				id VARCHAR(5000) PRIMARY KEY,
 				content VARCHAR(5000)
 				)' callback: [ :res | ].
 
-      dbclient execute: 'CREATE TABLE n_customersession(
+      dbclient <-: execute: 'CREATE TABLE n_customersession(
 				id VARCHAR(5000) PRIMARY KEY,
 				content VARCHAR(5000)
 				)' callback: [ :res | ].
 
-      dbclient execute: 'CREATE TABLE n_flight(
+      dbclient <-: execute: 'CREATE TABLE n_flight(
 				flightSegmentId VARCHAR(5000),
 				scheduledDepartureTime BIGINT,
 				id VARCHAR(5000),
@@ -111,7 +114,7 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
 				PRIMARY KEY (flightSegmentId,scheduledDepartureTime,id)
 				)' callback: [ :res | ].
 
-      dbclient execute: 'CREATE TABLE n_flightsegment(
+      dbclient <-: execute: 'CREATE TABLE n_flightsegment(
 				originPort VARCHAR(5000),
 				destPort VARCHAR(5000),
 				id VARCHAR(5000),
@@ -121,7 +124,7 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
 		)
 
     public insertOne: collectionname doc: doc callback: callback = (
-			(insertStmt at: collectionname) execute: (getInsertParam: collectionname doc: doc) callback: [ :result |
+			(insertStmt at: collectionname) <-: execute: (getInsertParam: collectionname doc: doc) callback: [ :result |
 				callback value: result.
 			]
     )
@@ -135,7 +138,7 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
 				^ self.
 			].
 
-			query execute: { key } callback: [ :result |
+			query <-: execute: { key } callback: [ :result |
 				result size = 0 ifTrue: [
 					callback value: nil.
 				] ifFalse: [
@@ -145,7 +148,7 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
     )
 
     public update: collectionname doc: doc callback: callback = (
-			(updateStmt at: collectionname) execute: (getUpdateParam: collectionname doc: doc) callback: [ :result |
+			(updateStmt at: collectionname) <-: execute: (getUpdateParam: collectionname doc: doc) callback: [ :result |
 					callback value: doc.
 			]
     )
@@ -154,9 +157,8 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
       | query |
 				
 			query:: 'DELETE from '+collectionname+ ' where '+ condition.
-			query println.
 			(*logger.debug("query:"+query +", param:"+ JSON.stringify(info.param))*)
-			(dbclient prepareStatement: query) execute: params callback: [ :result |
+			(dbclient <-: prepareStatement: query) <-: execute: params callback: [ :result |
 				callback value.
 			]
     )
@@ -166,9 +168,8 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
 			
 			query:: 'SELECT content from '+collectionname+ ' where '+ condition.
 			(*logger.debug("query:"+query +", param:"+ JSON.stringify(info.param))*)
-			(dbclient prepareStatement: query) execute: params callback: [ :result |
+			(dbclient <-: prepareStatement: query) <-: execute: params callback: [ :result |
 				|docs|
-				
 				docs:: Vector new.
 				1 to: (result size) do: [ :i |
 					(*logger.debug("result["+i +"]="+ JSON.stringify(result.rows[i]));*)
@@ -182,7 +183,7 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
     public count: collectionname condition: condition callback: callback = (
 			| query |
 			query:: 'SELECT COUNT(*) from '+collectionname+ ' where '+ condition.
-			dbclient execute: query callback: [ :count |
+			dbclient <-: execute: query callback: [ :count |
 				callback value: count.
 			]
     )

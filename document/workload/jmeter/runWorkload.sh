@@ -18,7 +18,7 @@
 echo 'Here is the current env'
 env
 
-cmd="/var/lib/apache-jmeter-$JMETER_VERSION/bin/jmeter -n -t AcmeAir.jmx"
+cmd="$JMETER_HOME/bin/jmeter -n -t AcmeAir.jmx -e -o ./logs/report"
 if [ ! -z $NUM_THREAD ] ; then
    cmd="$cmd -JNUM_THREAD=$NUM_THREAD"
 fi

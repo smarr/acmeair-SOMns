@@ -3,7 +3,7 @@
 * to SOMns.
 *
 * Copyright (c) 2015 IBM Corp.
-* Copyright (c) 2017 Dominik Aumayr
+* Copyright (c) 2018 Dominik Aumayr
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -50,8 +50,9 @@ class AcmeAir usingPlatform: platform = Value (
     (*Only initialize DB after initialization of the authService is done*)
     initialized ::= false.
     serverStarted ::= false.
-    host
-    port
+    host = 'localhost'.
+    port = settings at: #port.
+    public clearDB ::= false.
   |
     (*var authServiceLocation = process.env.AUTH_SERVICE;*)
     (*var settings = JSON.parse(fs.readFileSync('settings.json', 'utf8'));*)
@@ -87,7 +88,7 @@ class AcmeAir usingPlatform: platform = Value (
 
       routes:: (Routes Routes) new: authService settings: settings.
       loader:: (Loader Loader) new: routes.
-      server:: (http Server) create: 'localhost' port: 3458.
+      server:: (http Server) create: host port: port.
 
 
       (* just a reminder
@@ -148,44 +149,43 @@ class AcmeAir usingPlatform: platform = Value (
     )
 
     public checkStatus = (
-      ^ [ :req :res |
-        res sendStatus: 200.
+      ^ [ :exch |
+        exch sendResponseStatus: 200.
       ]
     )
 
     public login = (
-      ^ [ :req :res |
+      ^ [ :exch |
         initialized ifTrue: [
-          routes login: req res: res.
+          routes login: exch.
         ] ifFalse: [
           'please wait for db connection initialized then trigger again.' println.
           initDB.
-          res sendStatus: 403.
+          exch sendResponseStatus: 403.
         ] 
       ]
     )
 
     public logout = (
-      ^ [ :req :res |
+      ^ [ :exch |
         initialized ifTrue: [
-          routes logout: req res: res.
+          routes logout: exch.
         ] ifFalse: [
           'please wait for db connection initialized then trigger again.' println.
           initDB.
-          res sendStatus: 400.
+          exch sendResponseStatus: 400.
         ]
       ]
     )
 
     public startLoadDatabase = (
-      ^ [ :req :res |
-        'loading' println.
+      ^ [ :exch |
         initialized ifTrue: [
-          loader startLoadDatabase: req res: res.
+          loader startLoadDatabase: exch.
         ] ifFalse: [
           'please wait for db connection initialized then trigger again.' println.
           initDB.
-          res sendStatus: 400.
+          exch sendResponseStatus: 400.
         ] 
       ]
     )
@@ -193,7 +193,7 @@ class AcmeAir usingPlatform: platform = Value (
     public initDB = (
       initialized ifTrue: [ ^ self ].
       
-      routes initializeDatabaseConnections: [ :error |
+      routes initializeDatabaseConnections: clearDB callback: [ :error |
         error ifNil: [
           initialized:: true. 
         ] ifNotNil: [
@@ -202,6 +202,7 @@ class AcmeAir usingPlatform: platform = Value (
           process.exit(1);*)
         ].
         ('Initialized database connections') println.
+        
         startServer.
       ]
     )
@@ -224,6 +225,10 @@ class AcmeAir usingPlatform: platform = Value (
     |acme pp|
     pp:: actors createPromisePair.
     acme:: self Application new.
+    (args contains: '-clearDB') ifTrue: [
+      acme clearDB: true.
+    ].
+
     acme work.
     ^ pp promise.
   )
