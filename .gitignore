@@ -1,1 +1,5 @@
-apache-jmeter-4.0/*
+jmeter/*
+document/workload/jmeter/derby
+document/workload/jmeter/logs
+document/workload/jmeter/*.log
+apache-jmeter-4.0.zip

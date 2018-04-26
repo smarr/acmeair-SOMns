@@ -43,9 +43,7 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
 			logger.info('Connected.');
 			*)
 
-			clear ifTrue:[
-				prepareDB.
-			].
+			prepareDB: clear.
 
 			insertStmt at: #n_customer put: (dbclient <-: prepareStatement:'INSERT INTO n_customer (id,content) values (?, ?)').
 			insertStmt at: #n_customerSession put: (dbclient <-: prepareStatement: 'INSERT INTO n_customerSession (id,content) values (?, ?)').
@@ -73,38 +71,55 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
 			classMap at: #n_airportCodeMapping put: Loader AirportCodeMapping.
     )
 
-		private prepareDB = (
-
+		private prepareDB: clear = (
+			|createErrorHandler|
 			(*TODO cleanup*)
-			dbclient <-: execute: 'DROP TABLE n_airportcodemapping' callback: [ :res |] ifFail: [ :sym :msg |].
-      dbclient <-: execute: 'DROP TABLE n_booking' callback: [ :res |] ifFail: [ :sym :msg |].
-      dbclient <-: execute: 'DROP TABLE n_customer' callback: [ :res |] ifFail: [ :sym :msg |].
-      dbclient <-: execute: 'DROP TABLE n_customersession' callback: [ :res |] ifFail: [ :sym :msg |].
-      dbclient <-: execute: 'DROP TABLE n_flight' callback: [ :res |] ifFail: [ :sym :msg |].
-      dbclient <-: execute: 'DROP TABLE n_flightsegment' callback: [ :res |] ifFail: [ :sym :msg |].
+			clear ifTrue:[
+				dbclient <-: execute: 'DROP TABLE n_airportcodemapping' callback: [ :res |] ifFail: [ :sym :msg |].
+				dbclient <-: execute: 'DROP TABLE n_booking' callback: [ :res |] ifFail: [ :sym :msg |].
+				dbclient <-: execute: 'DROP TABLE n_customer' callback: [ :res |] ifFail: [ :sym :msg |].
+				dbclient <-: execute: 'DROP TABLE n_customersession' callback: [ :res |] ifFail: [ :sym :msg |].
+				dbclient <-: execute: 'DROP TABLE n_flight' callback: [ :res |] ifFail: [ :sym :msg |].
+				dbclient <-: execute: 'DROP TABLE n_flightsegment' callback: [ :res |] ifFail: [ :sym :msg |].
+			].
+
+			createErrorHandler:: [ :sym : msg |
+				sym = #SQLException30000 ifFalse:[
+						('' + sym + '   ' + msg) println.
+        		Derby SQLException signalWith: msg.
+				]
+			].
 
 			(*TODO cleanup*)
 			dbclient <-: execute: 'CREATE TABLE n_airportcodemapping(
 				id VARCHAR(5000) PRIMARY KEY,
 				content VARCHAR(5000)
-				)' callback: [ :res | ].
+				)' 
+				callback: [ :res | ] 
+				ifFail: createErrorHandler.
 
       dbclient <-: execute: 'CREATE TABLE n_booking(
 				customerId VARCHAR(5000),
 				id VARCHAR(5000),
 				content VARCHAR(5000),
 				PRIMARY KEY (customerId, id)
-				)' callback: [ :res | ].
+				)' 
+				callback: [ :res | ]
+				ifFail: createErrorHandler.
 
       dbclient <-: execute: 'CREATE TABLE n_customer(
 				id VARCHAR(5000) PRIMARY KEY,
 				content VARCHAR(5000)
-				)' callback: [ :res | ].
+				)' 
+				callback: [ :res | ]
+				ifFail: createErrorHandler.
 
       dbclient <-: execute: 'CREATE TABLE n_customersession(
 				id VARCHAR(5000) PRIMARY KEY,
 				content VARCHAR(5000)
-				)' callback: [ :res | ].
+				)' 
+				callback: [ :res | ]
+				ifFail: createErrorHandler.
 
       dbclient <-: execute: 'CREATE TABLE n_flight(
 				flightSegmentId VARCHAR(5000),
@@ -112,7 +127,9 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
 				id VARCHAR(5000),
 				content VARCHAR(5000),
 				PRIMARY KEY (flightSegmentId,scheduledDepartureTime,id)
-				)' callback: [ :res | ].
+				)' 
+				callback: [ :res | ]
+				ifFail: createErrorHandler.
 
       dbclient <-: execute: 'CREATE TABLE n_flightsegment(
 				originPort VARCHAR(5000),
@@ -120,7 +137,9 @@ class DataAccess usingPlatform: platform andJSON: JSON andLoader: Loader = Value
 				id VARCHAR(5000),
 				content VARCHAR(5000),
 				PRIMARY KEY (originPort,destPort,id)
-				)' callback: [ :res | ].
+				)' 
+				callback: [ :res | ]
+				ifFail: createErrorHandler.
 		)
 
     public insertOne: collectionname doc: doc callback: callback = (
