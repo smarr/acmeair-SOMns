@@ -24,7 +24,7 @@ class AcmeAir usingPlatform: platform = Value (
     private actors = platform actors.
     private ObjectMirror = platform mirrors ObjectMirror.
     private JSON = (platform system loadModule: 'JSON.ns' nextTo: self) usingPlatform: platform.
-    private Loader = (platform system loadModule: '/loader/Loader.ns' nextTo: self) usingPlatform: platform andJSON: JSON.
+    private Loader = (platform system loadModule: 'loader/Loader.ns' nextTo: self) usingPlatform: platform andJSON: JSON.
     private DataAccess = (platform system loadModule: 'DataAccess.ns' nextTo: self) usingPlatform: platform andJSON: JSON andLoader: Loader.
     private Routes = (platform system loadModule: 'Routes.ns' nextTo: self) usingPlatform: platform dataAccess: DataAccess andJSON: JSON andLoader: Loader.
 
