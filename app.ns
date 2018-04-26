@@ -19,26 +19,26 @@
 *******************************************************************************)
 
 class AcmeAir usingPlatform: platform = Value (
-  | 
+  |
     private http = platform http.
     private actors = platform actors.
     private ObjectMirror = platform mirrors ObjectMirror.
     private JSON = (platform system loadModule: 'JSON.ns' nextTo: self) usingPlatform: platform.
     private Loader = (platform system loadModule: '/loader/Loader.ns' nextTo: self) usingPlatform: platform andJSON: JSON.
     private DataAccess = (platform system loadModule: 'DataAccess.ns' nextTo: self) usingPlatform: platform andJSON: JSON andLoader: Loader.
-    private Routes = (platform system loadModule: 'Routes.ns' nextTo: self) usingPlatform: platform dataAccess: DataAccess andJSON: JSON andLoader: Loader. 
-    
+    private Routes = (platform system loadModule: 'Routes.ns' nextTo: self) usingPlatform: platform dataAccess: DataAccess andJSON: JSON andLoader: Loader.
+
     private FilePath = platform files FilePath.
     private Dictionary = platform collections Dictionary.
     private System = platform system.
     private platform = platform.
-    
+
   |
 ) (
 
   public class Application = (
     |
-    private modulePath = (ObjectMirror reflecting: self) classMirror classDefinition filePath. 
+    private modulePath = (ObjectMirror reflecting: self) classMirror classDefinition filePath.
     private root = (FilePath for: modulePath) containingDirectory pattern.
     settings = readSettings.
     authService
@@ -59,7 +59,7 @@ class AcmeAir usingPlatform: platform = Value (
     (* disable process.env.PORT for now as it cause problem on mesos slave*)
     (*var port = (process.env.VMC_APP_PORT || process.env.VCAP_APP_PORT || settings.port);*)
     (*var host = (process.env.VCAP_APP_HOST || 'localhost');*)
-    
+
     ('host:port==' + host + ':' + port) println.
   )(
 
@@ -69,16 +69,16 @@ class AcmeAir usingPlatform: platform = Value (
       we don't implement fancy microservices for now
       authServiceLocation = nil ifFalse: [
         ('Use authservice:' + authServiceLocation) println.
-        
+
         (authServiceLocation indexOf: ':') > 0 ifTrue: [
           (*This is to use micro services*)
           authModule:: 'acmeairhttp'.
         ] ifFalse: [
           authModule:: authServiceLocation.
         ].
-        
+
         authService:: (System loadModule: ('/'+authModule+'/authService.ns') nextTo: self) settings: settings dataAccess: DataAccess.
-        
+
         (* ignore hystrix for now
         (authService = nil) not && enableHystrix ifTrue: [
           'Enabled Hystrix' println.
@@ -97,15 +97,15 @@ class AcmeAir usingPlatform: platform = Value (
       var cookieParser = require('cookie-parser')*)
 
       (*parse JSON request body, url encoded, and html is parsed as text
-      
-      
+
+
       application/x-www-form-urlencoded
       application/json
       text/html
       *)
 
       (*set the static files location /public/img will be /img for users*)
-      server <-: static: '/' with: ( root + '/public/'). 		
+      server <-: static: '/' with: ( root + '/public/').
 
 
       (*set up routing of requests*)
@@ -144,7 +144,7 @@ class AcmeAir usingPlatform: platform = Value (
         server route: ('/rest/api/hystrix.stream') with: #GET to: authService hystrixStream.
       ].*)
 
-      
+
       initDB.
     )
 
@@ -162,7 +162,7 @@ class AcmeAir usingPlatform: platform = Value (
           'please wait for db connection initialized then trigger again.' println.
           initDB.
           exch sendResponseStatus: 403.
-        ] 
+        ]
       ]
     )
 
@@ -186,23 +186,23 @@ class AcmeAir usingPlatform: platform = Value (
           'please wait for db connection initialized then trigger again.' println.
           initDB.
           exch sendResponseStatus: 400.
-        ] 
+        ]
       ]
     )
 
     public initDB = (
       initialized ifTrue: [ ^ self ].
-      
+
       routes initializeDatabaseConnections: clearDB callback: [ :error |
         error ifNil: [
-          initialized:: true. 
+          initialized:: true.
         ] ifNotNil: [
           ('Error connecting to database - exiting process: ' + error) println.
           (*Do not stop the process for debug in container service
           process.exit(1);*)
         ].
         ('Initialized database connections') println.
-        
+
         startServer.
       ]
     )
